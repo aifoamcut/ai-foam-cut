@@ -305,7 +305,7 @@
   <div class="wrap facts">
     <div>
       <h3>Voraussetzungen</h3>
-      <p>Windows-PC für die fertige .exe; aus dem Quellcode läuft das Programm überall, wo Python 3.11 oder neuer vorhanden ist. Die Bedienung findet im Browser statt (Chrome oder Edge), die Maschinenverbindung läuft über Web Serial.</p>
+      <p>Windows-PC für die fertigen .exe-Dateien; aus dem Quellcode läuft das Programm überall, wo Python 3.11 oder neuer vorhanden ist. Die Bedienung findet im Browser statt (Chrome oder Edge) – oder im eigenen Fenster, wenn du die Fensterversion nimmst, die ihre Anzeige selbst mitbringt. Die Maschinenverbindung läuft über Web Serial.</p>
     </div>
     <div>
       <h3>Steuerungen</h3>
@@ -317,7 +317,7 @@
     </div>
     <div>
       <h3>Betrieb</h3>
-      <p>Startet als einzelne .exe mit lokalem Server oder direkt mit <code>python launcher.py</code>, keine Installation, keine Internetverbindung, keine Registrierung. Daten bleiben auf dem eigenen Rechner.</p>
+      <p>Startet als einzelne .exe – im Browser oder im eigenen Fenster – oder direkt mit <code>python launcher.py</code>. Keine Installation, keine Internetverbindung, keine Registrierung. Daten bleiben auf dem eigenen Rechner.</p>
     </div>
   </div>
 </section>
@@ -344,7 +344,7 @@
         <ul>
           <li>Reine Webanwendung mit kleinem Python-Server, keine Übersetzungsschritte nötig</li>
           <li>Mit <code>python launcher.py</code> sofort startklar (Python 3.11 oder neuer)</li>
-          <li>Eigene .exe über <code>python build_tool.py</code> (PyInstaller)</li>
+          <li>Eigene .exe über <code>build_tool.py</code> (Browser-Version) oder <code>build_tool_electron.py</code> (Fensterversion)</li>
           <li>Über <code>features.json</code> lässt sich der Umfang einer eigenen Ausgabe zuschneiden</li>
           <li>Änderungen dürfen weitergegeben werden &ndash; dann wieder offen unter der GPL</li>
         </ul>
@@ -369,17 +369,28 @@
 <section id="download" class="block alt">
   <div class="wrap narrow">
     <h2>Herunterladen</h2>
-    <p class="sub">Zwei gleichwertige Wege zum vollen Programm: die fertige Windows-Datei zum sofortigen Losarbeiten oder der Quellcode. Der Funktionsumfang ist in beiden Fällen derselbe.</p>
+    <p class="sub">Drei Wege zum vollen Programm &ndash; der Funktionsumfang ist überall derselbe. Die beiden fertigen Windows-Dateien unterscheiden sich nur darin, <strong>wo das Programm angezeigt wird</strong>.</p>
 
     <div class="download-card">
       <div class="download-info">
-        <h3>Fertige Windows-Version</h3>
-        <p>Einzelne .exe, keine Installation, keine Internetverbindung nötig &ndash; herunterladen, doppelklicken, das Programm öffnet sich im Browser.</p>
+        <h3>Windows-Version für den Browser</h3>
+        <p>Einzelne .exe, keine Installation, keine Internetverbindung nötig. Sie startet einen lokalen Server und öffnet das Programm in deinem Browser (Chrome oder Edge). Kleiner Download, weil sie den Browser benutzt, der schon auf dem Rechner ist.</p>
         <!-- Version hier bei jedem Austausch anpassen: -->
-        <p class="download-meta">Version 1.4 &middot; Stand 25. September 2026 &middot; Windows-PC</p>
+        <p class="download-meta">Version 1.4 &middot; rund 11 MB &middot; Windows-PC</p>
       </div>
       <a href="https://github.com/aifoamcut/ai-foam-cut/releases/latest/download/AI-Foam-Cut.exe" class="btn">.exe herunterladen</a>
     </div>
+
+    <div class="download-card">
+      <div class="download-info">
+        <h3>Windows-Version mit eigenem Fenster</h3>
+        <p>Dasselbe Programm, aber als eigenständige Anwendung: eigenes Fenster, eigener Eintrag in der Taskleiste, kein Browser nötig. Sie bringt ihre Anzeige selbst mit, ist also von Browser-Einstellungen und -Updates unabhängig. Dafür ist der Download deutlich größer.</p>
+        <p class="download-meta">Version 1.4 &middot; rund 72 MB &middot; Windows-PC</p>
+      </div>
+      <a href="https://github.com/aifoamcut/ai-foam-cut/releases/latest/download/AI-Foam-Cut-Fenster.exe" class="btn">.exe herunterladen</a>
+    </div>
+
+    <p class="note"><strong>Welche nehmen?</strong> Im Zweifel die Browser-Version: sie ist deutlich kleiner und die seit Anfang an übliche Fassung. Die Fensterversion lohnt sich, wenn du das Programm lieber wie ein normales Windows-Programm nutzen möchtest oder keinen Chrome bzw. Edge auf dem Rechner haben willst. Beide erzeugen denselben G-Code und lesen dieselben Projektdateien &ndash; du kannst jederzeit wechseln.</p>
 
     <div class="download-card full">
       <div class="download-info">
@@ -392,7 +403,7 @@
 
     <p class="note">Beide Knöpfe führen zu <a href="https://github.com/aifoamcut/ai-foam-cut" target="_blank" rel="noopener">GitHub</a>; die Dateien liegen nicht auf dieser Website. Ein GitHub-Konto ist dafür nicht nötig. Dabei erfährt GitHub (GitHub B.V. / GitHub, Inc.) die üblichen Verbindungsdaten wie deine IP-Adresse &ndash; siehe <a href="rechtliches.html#datenschutz">Datenschutzerklärung</a>.</p>
 
-    <p class="note">Bei einer neuen, nicht signierten .exe zeigt Windows unter Umständen eine Warnung („SmartScreen“). Für dieses freie Projekt wird kein kostenpflichtiges Signaturzertifikat gekauft. Wer der Datei nicht vertrauen möchte, baut sie mit <code>python build_tool.py</code> selbst aus dem Quellcode.</p>
+    <p class="note">Bei einer neuen, nicht signierten .exe zeigt Windows unter Umständen eine Warnung („SmartScreen“). Für dieses freie Projekt wird kein kostenpflichtiges Signaturzertifikat gekauft. Wer den Dateien nicht vertrauen möchte, baut sie mit <code>python build_tool.py</code> bzw. <code>python build_tool_electron.py</code> selbst aus dem Quellcode.</p>
 
     <p class="note">Hinweis: AI Foam Cut ist ein Einzelprojekt und wurde mit Unterstützung von KI entwickelt. Die Software ist nicht zertifiziert und trägt keinen Konformitätsnachweis für den Maschinenbetrieb. Sie befindet sich in aktiver Entwicklung und wird ohne jede Gewährleistung bereitgestellt &ndash; Download und Betrieb erfolgen auf eigenes Risiko; für Schäden am Computer, am Betriebssystem, an Daten oder an der Maschine wird im gesetzlich zulässigen Rahmen keine Haftung übernommen (Abschnitte 15&ndash;17 der GPL-3.0). Eine erreichbare Not-Aus-Einrichtung ist Voraussetzung, und jedes Programm gehört vor dem Schnitt in die Simulation. Es gilt der <a href="rechtliches.html#haftung">Haftungsausschluss</a>.</p>
   </div>

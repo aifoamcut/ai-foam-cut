@@ -305,7 +305,7 @@
   <div class="wrap facts">
     <div>
       <h3>Requirements</h3>
-      <p>A Windows PC for the ready-made .exe; from source it runs anywhere with Python 3.11 or newer. The interface runs in a browser (Chrome or Edge), the machine connection uses Web Serial.</p>
+      <p>A Windows PC for the ready-made .exe files; from source it runs anywhere with Python 3.11 or newer. The interface runs in a browser (Chrome or Edge) – or in its own window if you pick the windowed build, which ships its own display engine. The machine connection uses Web Serial.</p>
     </div>
     <div>
       <h3>Controllers</h3>
@@ -317,7 +317,7 @@
     </div>
     <div>
       <h3>Operation</h3>
-      <p>Starts as a single .exe with a local server, or straight from source with <code>python launcher.py</code>. No installation, no internet connection, no registration. Data stays on your own computer.</p>
+      <p>Starts as a single .exe – in your browser or in its own window – or straight from source with <code>python launcher.py</code>. No installation, no internet connection, no registration. Data stays on your own computer.</p>
     </div>
   </div>
 </section>
@@ -344,7 +344,7 @@
         <ul>
           <li>A plain web application with a small Python server, no build step required</li>
           <li>Ready to run with <code>python launcher.py</code> (Python 3.11 or newer)</li>
-          <li>Build your own .exe with <code>python build_tool.py</code> (PyInstaller)</li>
+          <li>Build your own .exe with <code>build_tool.py</code> (browser build) or <code>build_tool_electron.py</code> (windowed build)</li>
           <li><code>features.json</code> lets you tailor which features your own build contains</li>
           <li>You may pass on your changes &ndash; openly, under the GPL again</li>
         </ul>
@@ -369,17 +369,28 @@
 <section id="download" class="block alt">
   <div class="wrap narrow">
     <h2>Download</h2>
-    <p class="sub">Two equal ways to the complete program: the ready-made Windows build to start right away, or the source code. The feature set is identical either way.</p>
+    <p class="sub">Three ways to the complete program &ndash; the feature set is the same in all of them. The two ready-made Windows builds differ only in <strong>where the program is displayed</strong>.</p>
 
     <div class="download-card">
       <div class="download-info">
-        <h3>Ready-made Windows build</h3>
-        <p>A single .exe, no installation, no internet connection needed &ndash; download, double-click, the program opens in your browser.</p>
+        <h3>Windows build for your browser</h3>
+        <p>A single .exe, no installation, no internet connection needed. It starts a local server and opens the program in your browser (Chrome or Edge). A small download, because it uses the browser already on your machine.</p>
         <!-- Update the version here with every release: -->
-        <p class="download-meta">Version 1.4 &middot; 25 September 2026 &middot; Windows PC</p>
+        <p class="download-meta">Version 1.4 &middot; about 11 MB &middot; Windows PC</p>
       </div>
       <a href="https://github.com/aifoamcut/ai-foam-cut/releases/latest/download/AI-Foam-Cut.exe" class="btn">Download the .exe</a>
     </div>
+
+    <div class="download-card">
+      <div class="download-info">
+        <h3>Windows build with its own window</h3>
+        <p>The same program as a standalone application: its own window, its own taskbar entry, no browser needed. It ships its own display engine, so it is independent of your browser settings and updates. In exchange the download is considerably larger.</p>
+        <p class="download-meta">Version 1.4 &middot; about 72 MB &middot; Windows PC</p>
+      </div>
+      <a href="https://github.com/aifoamcut/ai-foam-cut/releases/latest/download/AI-Foam-Cut-Fenster.exe" class="btn">Download the .exe</a>
+    </div>
+
+    <p class="note"><strong>Which one?</strong> If in doubt, take the browser build: it is much smaller and has been the usual edition from the start. The windowed build is worth it if you would rather use the program like a normal Windows application, or do not want Chrome or Edge on your machine. Both produce the same G-code and read the same project files &ndash; you can switch at any time.</p>
 
     <div class="download-card full">
       <div class="download-info">
@@ -392,7 +403,7 @@
 
     <p class="note">Both buttons lead to <a href="https://github.com/aifoamcut/ai-foam-cut" target="_blank" rel="noopener">GitHub</a>; the files are not hosted on this website. No GitHub account is required. In doing so, GitHub (GitHub B.V. / GitHub, Inc.) receives the usual connection data such as your IP address &ndash; see the <a href="rechtliches.html#datenschutz">privacy policy</a>.</p>
 
-    <p class="note">Windows may warn about a new, unsigned .exe (&ldquo;SmartScreen&rdquo;). This free project does not buy a paid code-signing certificate. If you would rather not trust the file, build it yourself from source with <code>python build_tool.py</code>.</p>
+    <p class="note">Windows may warn about a new, unsigned .exe (&ldquo;SmartScreen&rdquo;). This free project does not buy a paid code-signing certificate. If you would rather not trust the files, build them yourself from source with <code>python build_tool.py</code> or <code>python build_tool_electron.py</code>.</p>
 
     <p class="note">Note: AI Foam Cut is a one-person project, developed with AI assistance. The software is not certified and carries no declaration of conformity for machine operation. It is under active development and comes with absolutely no warranty &ndash; downloading and running it is at your own risk; no liability is accepted, as far as legally permissible, for damage to your computer, operating system, data or machine (sections 15&ndash;17 of the GPL-3.0). A reachable emergency stop is a prerequisite, and every program belongs in the simulation before cutting. The <a href="rechtliches.html#haftung">disclaimer</a> applies.</p>
   </div>
