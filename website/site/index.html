@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Foam Cut – Software für 4-Achs-Heißdrahtschneider</title>
+<meta name="description" content="AI Foam Cut: freie Software (GPL-3.0) für CNC-Heißdrahtschneider im Modellflug – Tragflächendesign, Kern- und Negativschalendesign, DXF-Formen, 3D-Modelle, Formenbau und G-Code-Simulation.">
+<link rel="alternate" hreflang="de" href="https://ai-foam-cut.com/">
+<link rel="alternate" hreflang="en" href="https://ai-foam-cut.com/index-en.html">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap nav">
+    <a class="brand" href="#top">AI <span>Foam Cut</span></a>
+    <nav>
+      <a href="#funktionen">Funktionen</a>
+      <a href="#formenbau">Formenbau</a>
+      <a href="#spezial">Spezialfunktionen</a>
+      <a href="#quellcode">Open Source</a>
+      <a href="#download">Download</a>
+      <a href="#spenden" class="btn small">Spenden</a>
+      <a href="index-en.html" class="lang" lang="en" title="English version">EN</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================= HERO ================= -->
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Freie Software für CNC-Heißdrahtschneider</p>
+    <h1>Von Tragflächen über komplexe Formen &ndash; alles in einer Software</h1>
+    <p class="lead">
+      AI Foam Cut deckt die ganze Kette ab: Tragfläche entwerfen, Kern oder Negativschale ableiten,
+      Abbrand und Beplankung kompensieren, G-Code erzeugen, in 3D simulieren und direkt aus dem
+      Programm an die Maschine senden. Die Steuerung ist kompatibel mit grblHAL und
+      GRBL HotWire Mega 5X &ndash; passende Infos und Firmwares für die Boards gibt es bei
+      <a href="https://rckeith.co.uk/" target="_blank" rel="noopener">RC Keith</a>.
+    </p>
+    <p class="lead">
+      Das Programm ist <strong>quelloffen und kostenlos</strong> &ndash; veröffentlicht unter der
+      GNU General Public License 3.0. Keine Lizenzschlüssel, keine Testfristen, kein
+      Funktionsumfang hinter einer Bezahlschranke, keine Telemetrie. Wer möchte, lädt die fertige
+      Windows-Version; wer lieber selbst nachsieht oder mitbaut, nimmt den Quellcode.
+    </p>
+    <div class="cta">
+      <div class="cta-downloads">
+        <a href="#download" class="btn">Windows-Version herunterladen</a>
+        <a href="#quellcode" class="btn">Quellcode ansehen</a>
+      </div>
+      <a href="#funktionen" class="btn ghost">So funktioniert es</a>
+    </div>
+    <figure class="shot hero-shot">
+      <img src="img/gcode.jpg" alt="3D-Simulation des Schnitts im Reiter G-Code: beide Portale, Heißdraht, Block und Schneidewege" loading="eager">
+      <figcaption>G-Code-Simulator: beide Portale, Heißdraht und Block in 3D, daneben der erzeugte G-Code Zeile für Zeile.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ================= KERNFUNKTIONEN ================= -->
+<section id="funktionen" class="block">
+  <div class="wrap">
+    <h2>Tragflächen</h2>
+    <p class="sub">Jede Änderung im Entwurf wirkt sofort auf Zeichnung, Schnittspur und G-Code.</p>
+
+    <div class="gallery">
+      <figure class="shot">
+        <img src="img/material.jpg" alt="Reiter Projektübersicht und Werkstoffzuordnung mit Tragflächen und Gewichtsschätzung" loading="lazy">
+        <figcaption><strong>Projektübersicht.</strong> Zur Verwaltung von Projekt und Werkstoff.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/tragflaeche.jpg" alt="Reiter Tragflächendesigner mit Grundriss, Profilquerschnitt und Aufriss" loading="lazy">
+        <figcaption><strong>Tragflächendesign.</strong> Zur Erstellung von Tragflächen.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/kern.jpg" alt="Reiter Kerndesign mit Blockgeometrie, Schnittverlängerungen und Schnittspur" loading="lazy">
+        <figcaption><strong>Kerndesign.</strong> Zur Erstellung von Kernen.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/negativ.jpg" alt="Reiter Negativschalendesign mit auseinandergezogener Ober- und Unterschale" loading="lazy">
+        <figcaption><strong>Negativdesign.</strong> Zur Erstellung von Negativschalen.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ================= WORKFLOW DXF + 3D ================= -->
+<section id="dxf" class="block">
+  <div class="wrap">
+    <h2>Freie Konturen und 3D-Modelle</h2>
+    <p class="sub">Alles, was keine Tragfläche ist: Rümpfe, Leitwerke, Spanten, Schriftzüge, Scheiben aus dem CAD.</p>
+
+    <div class="two">
+      <div class="col">
+        <figure class="shot">
+          <img src="img/dxf.jpg" alt="Reiter DXF-Formen mit Rippenkette im Grundriss und INNEN/AUSSEN-Kontur mit Synchronpunkten" loading="lazy">
+        </figure>
+        <h3>Weg über DXF-Formen</h3>
+        <ol class="mini">
+          <li>DXF oder SVG laden; jeder Layer wird als Profil angeboten.</li>
+          <li>Rippenkette prüfen, Layer je Segment als INNEN und AUSSEN zuordnen und ausrichten.</li>
+          <li>Blockgeometrie: Segmentbreite, Blockmaße, Mindestabstand.</li>
+          <li>Synchronpunkte setzen, wenn INNEN und AUSSEN verschieden sind.</li>
+          <li>Umlaufrichtung, Abbrand und sichere An-/Ausfahrt wählen, dann G-Code und Schnitt.</li>
+        </ol>
+        <p class="note">Ohne DXF-Datei: „Frei zeichnen“ öffnet den eingebauten CAD-Editor, das Ergebnis geht direkt zurück in die DXF-Formen.</p>
+      </div>
+
+      <div class="col">
+        <figure class="shot">
+          <img src="img/modell.jpg" alt="Reiter 3D-Modell: Rumpf in zehn Querschnitte zerlegt mit Schnittebenen" loading="lazy">
+        </figure>
+        <h3>Weg über das 3D-Modell</h3>
+        <ol class="mini">
+          <li>STL-Modell laden.</li>
+          <li>Schnittachse wählen, Ebenen gleichmäßig verteilen oder einzeln setzen, zerlegen.</li>
+          <li>Je Querschnitt Abbrand, Vorschub, Anfahrpunkt und Richtung festlegen; Startpunkt per Klick auf die Spur.</li>
+          <li>Als G-Code-Quelle übernehmen oder mehrere gleich dicke Querschnitte als <em>Platte</em> aus einem Block nesten.</li>
+          <li>Simulieren, schneiden, Querschnitte verkleben und verschleifen.</li>
+        </ol>
+        <figure class="shot">
+          <img src="img/platte.jpg" alt="Plattenmodus: zehn Querschnitte kollisionsfrei auf einer Platte angeordnet" loading="lazy">
+          <figcaption><strong>Plattenmodus.</strong> Mehrere gleich dicke Querschnitte werden automatisch kollisionsfrei angeordnet und in einem Programm geschnitten.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RANDBÖGEN + FORMENBAU ================= -->
+<section id="formenbau" class="block">
+  <div class="wrap">
+    <h2>Randbögen, Winglets und Formenbau</h2>
+    <p class="sub">Aus derselben Tragfläche wird ein Urmodell oder eine Negativform &ndash; als STL für 3D-Druck und CNC-Fräsen, als STEP für das CAD.</p>
+
+    <div class="two">
+      <div class="col">
+        <figure class="shot">
+          <img src="img/winglet.jpg" alt="Formenbau: Urmodell der Tragfläche mit Winglet und Übergangsbogen, daneben die Winglet-Parameter" loading="lazy">
+          <figcaption><strong>Winglet am Urmodell.</strong> Übergangsradius, Neigung, Pfeilung, Toe-out und Spitzenform &ndash; in 3D sofort sichtbar.</figcaption>
+        </figure>
+        <h3>Randbogen und Winglet</h3>
+        <ol class="mini">
+          <li>Randbogen: Nasen- und Endleistenlinie laufen als Superellipsen zum Bezugspunkt. Vorlagen nach echten Segelflugzeugen (Ellipse, Sichel, gepfeilt, hochgezogen), danach Länge, Hochziehen, Schränkung und Dickenverlauf frei einstellbar.</li>
+          <li>Winglet mit tangentialem Übergangsbogen: Länge, Neigung, Pfeilung, Toe-out, Twist, eigene Profile für Wurzel, Mitte und Spitze.</li>
+          <li>Winglet aus Zeichnung: Form im Dreitafel-Editor zeichnen, die Software baut den Übergang.</li>
+          <li>Tragfläche und Randbogen bzw. Winglet getrennt exportieren, mit Steckungsbohrungen deckungsgleich.</li>
+        </ol>
+      </div>
+
+      <div class="col">
+        <figure class="shot">
+          <img src="img/negform.jpg" alt="Formenbau: untere Hälfte der Negativform mit Kavität, Flansch, Steckungs-Ausnehmungen und Blutrinne" loading="lazy">
+          <figcaption><strong>Negativform, untere Hälfte.</strong> Kavität und Flansch mit Ausnehmungen für die Steckung, Blutrinne und Nasen-Huckel.</figcaption>
+        </figure>
+        <h3>Formenbau</h3>
+        <ol class="mini">
+          <li>Ziel wählen: Urmodell (Positiv), geteiltes Urmodell zum Abformen oder beide Negativform-Hälften.</li>
+          <li>Alle Rippen werden als B-Spline geglättet; Aufmaß für Lack/Gelcoat und Endleistendicke global einstellbar.</li>
+          <li>Trennfläche folgt der Sehnenfläche; Überstände, Passbohrungen, Steckungs-Ausnehmungen und Blutrinne im Flansch.</li>
+          <li>Große Formen in Druckstücke segmentieren; Krümmungs- und Zebra-Analyse zur Oberflächenprüfung.</li>
+          <li>Export als STL (Z hoch, druck- und fräsfertig) oder als STEP-Volumenkörper für Fusion, SolidWorks, FreeCAD.</li>
+        </ol>
+        <figure class="shot">
+          <img src="img/negschnitt.jpg" alt="Formenbau: 2D-Schnitt durch beide Negativform-Hälften mit Profil, Trennfläche und Überständen" loading="lazy">
+          <figcaption><strong>Schnitt durch die Form.</strong> Beide Hälften an jeder Spannweitenposition prüfen: Profil, Trennfläche, Überstände, Blutrinne.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SPEZIALFUNKTIONEN ================= -->
+<section id="spezial" class="block alt">
+  <div class="wrap">
+    <div class="grid">
+      <article>
+        <h3>Projektübersicht &amp; Werkstoff-Datenbank</h3>
+        <ul>
+          <li>Projekt anlegen und benennen</li>
+          <li>Anzahl der Tragflächen festlegen</li>
+          <li>Jeder Tragfläche Design (Kern/Negativ) und Werkstoff zuweisen</li>
+          <li>Werkstoffe frei anlegen: Name, Rohdichte, Kategorie</li>
+          <li>Abbrand- und Heizwerte je Werkstoff kalibrieren</li>
+          <li>Werkstoffdaten exportieren und importieren</li>
+          <li>Gewichtsschätzung je Tragfläche (Kern, Beplankung, Gewebe, Harz)</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Tragflächendesign</h3>
+        <ul>
+          <li>Profile laden als .dat, DXF oder .bez</li>
+          <li>Beliebig viele Segmente, Sehnen, Spannweite</li>
+          <li>Pfeilung, Schränkung, V-Form, Scharnierlage</li>
+          <li>Globale Pfeilung: Nase, Endleiste oder Scharnier gerade halten</li>
+          <li>Profilhöhenausrichtung (höchster Punkt, Scharnier, Sehne)</li>
+          <li>Beplankungsabzug</li>
+          <li>Vielfältige Holmausschnitte und Scharnierausschnitte</li>
+          <li>Mehrere Tragflächen je Projekt</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Kerndesign</h3>
+        <ul>
+          <li>Blockzugaben und Schnittverlängerungen je Segment</li>
+          <li>Abbrand-Kompensation, wählbar auf Ober-/Unterschale</li>
+          <li>Werkstück drehen (Pfeilung) für schräge Blocklage</li>
+          <li>Kerne spiegeln und stapeln</li>
+          <li>Punkte einzeln nacharbeiten</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Negativschalendesign</h3>
+        <ul>
+          <li>Formhälften</li>
+          <li>Kern und Stützstoff im selben Schnitt</li>
+          <li>Kern in einzelne Stege zerlegen (Glasschlauch, Holmgurt, Stegabstand)</li>
+          <li>Punkte einzeln nacharbeiten</li>
+        </ul>
+      </article>
+      <article>
+        <h3>DXF-Formen</h3>
+        <ul>
+          <li>Beliebige Konturen aus DXF oder SVG</li>
+          <li>Layer frei auf INNEN und AUSSEN zuordnen</li>
+          <li>Synchronpunkte für unterschiedliche Querschnitte</li>
+          <li>Frei zeichnen im CAD-Editor</li>
+          <li>GMFC-Projekte (.cnc) exportieren und importieren</li>
+        </ul>
+      </article>
+      <article>
+        <h3>3D-Modell</h3>
+        <ul>
+          <li>STL-Modell laden</li>
+          <li>In Querschnitte zerlegen, Schnittachse und Ebenen frei wählen</li>
+          <li>Heißdraht-G-Code je Querschnitt</li>
+          <li><strong>Plattenmodus:</strong> mehrere gleich dicke Querschnitte aus einem Block nesten</li>
+          <li>Querschnitte verschieben und Verbindungswege bearbeiten</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Formenbau</h3>
+        <ul>
+          <li>Urmodell oder beide Negativform-Hälften als STL</li>
+          <li>Für 3D-Druck und CNC-Fräsen</li>
+          <li>Geglättete Profile, einstellbarer Randbogen und Winglet</li>
+          <li>Trennfläche und Passbohrungen</li>
+          <li>Segmentierung in Druckstücke</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Rippendesigner</h3>
+        <ul>
+          <li>Rippen und Halbrippen aus der Tragfläche</li>
+          <li>Beplankung und Holme berücksichtigt</li>
+          <li>Nasenschablonen als Schleifhilfe</li>
+          <li>Export als STL oder DXF</li>
+        </ul>
+      </article>
+      <article>
+        <h3>CAD-Bearbeitung</h3>
+        <ul>
+          <li>Eigener 2D-CAD-Editor</li>
+          <li>Hintergrundbild als Vorlage</li>
+          <li>Import aus allen Designs</li>
+          <li>Ergebnis in DXF-Formen übernehmen</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Maschine</h3>
+        <ul>
+          <li>Maschinensteuerung per Web Serial (grblHAL, Mega 5X)</li>
+          <li>Handfahrt, Referenzfahrt, Drahtheizung</li>
+          <li>$$-Editor der Steuerung</li>
+        </ul>
+      </article>
+    </div>
+
+    <div class="gallery small">
+      <figure class="shot">
+        <img src="img/matdb.jpg" alt="Ansicht Werkstoff-Datenbank mit Werkstoffeigenschaften und Abbrand-Kalibrierung" loading="lazy">
+        <figcaption>Werkstoff-Datenbank</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/cad.jpg" alt="Reiter CAD-Bearbeitung mit Zeichenfläche und Befehlszeile" loading="lazy">
+        <figcaption>CAD-Bearbeitung</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/rippen.jpg" alt="Reiter Rippendesigner" loading="lazy">
+        <figcaption>Rippendesigner</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/schneiden.jpg" alt="Reiter Schneiden mit Blockzuschnitt und Maschinensteuerung" loading="lazy">
+        <figcaption>Schneiden und Blockzuschnitt</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ================= TECHNIK ================= -->
+<section class="block">
+  <div class="wrap facts">
+    <div>
+      <h3>Voraussetzungen</h3>
+      <p>Windows-PC für die fertige .exe; aus dem Quellcode läuft das Programm überall, wo Python 3.11 oder neuer vorhanden ist. Die Bedienung findet im Browser statt (Chrome oder Edge), die Maschinenverbindung läuft über Web Serial.</p>
+    </div>
+    <div>
+      <h3>Steuerungen</h3>
+      <p>grblHAL mit vier Achsen (z. B. BTT SKR Pico) oder Mega 5X (GRBL HotWire Mega 5X). Achsnamen frei konfigurierbar. Passende Infos und Firmwares für die Boards gibt es bei <a href="https://rckeith.co.uk/" target="_blank" rel="noopener">RC Keith</a>.</p>
+    </div>
+    <div>
+      <h3>Dateiformate</h3>
+      <p>Profile .dat, DXF, SVG · Modelle STL, OBJ, 3MF · Export G-Code, DXF, STL, GMFC .cnc · Projekte als JSON.</p>
+    </div>
+    <div>
+      <h3>Betrieb</h3>
+      <p>Startet als einzelne .exe mit lokalem Server oder direkt mit <code>python launcher.py</code>, keine Installation, keine Internetverbindung, keine Registrierung. Daten bleiben auf dem eigenen Rechner.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= OPEN SOURCE ================= -->
+<section id="quellcode" class="block">
+  <div class="wrap narrow">
+    <h2>Open Source</h2>
+    <p class="sub">AI Foam Cut steht vollständig unter der <strong>GNU General Public License, Version&nbsp;3 oder später</strong>. Der Quellcode ist offen, das Programm bleibt kostenlos, und niemand muss sich darauf verlassen, dass ein Einzelprojekt für immer weitergepflegt wird.</p>
+
+    <div class="grid">
+      <article>
+        <h3>Was das für dich bedeutet</h3>
+        <ul>
+          <li>Benutzen, kopieren und weitergeben &ndash; privat und gewerblich, ohne Kosten</li>
+          <li>Kein Lizenzschlüssel, keine Aktivierung, keine Testfrist, keine Registrierung</li>
+          <li>Alle Funktionen sind enthalten &ndash; auch G-Code-Erzeugung und Maschinensteuerung</li>
+          <li>Nichts wird nach Hause gemeldet: keine Telemetrie, keine Nutzungsstatistik, keine Aktualisierungsprüfung</li>
+          <li>Der erzeugte G-Code trägt keinen Vermerk auf eine Person</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Selbst bauen und ändern</h3>
+        <ul>
+          <li>Reine Webanwendung mit kleinem Python-Server, keine Übersetzungsschritte nötig</li>
+          <li>Mit <code>python launcher.py</code> sofort startklar (Python 3.11 oder neuer)</li>
+          <li>Eigene .exe über <code>python build_tool.py</code> (PyInstaller)</li>
+          <li>Über <code>features.json</code> lässt sich der Umfang einer eigenen Ausgabe zuschneiden</li>
+          <li>Änderungen dürfen weitergegeben werden &ndash; dann wieder offen unter der GPL</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Mitmachen</h3>
+        <ul>
+          <li>Fehlerberichte und Verbesserungsvorschläge auf GitHub oder per E-Mail</li>
+          <li>Bei einem Fehler hilft die Projektdatei, mit der er auftritt, sehr weiter</li>
+          <li>Rückmeldungen aus der Werkstatt sind so wertvoll wie Code</li>
+          <li>Übersetzungen, Handbuch, Profildaten: Beiträge müssen kein Programmcode sein</li>
+          <li>Beigesteuerter Code steht ebenfalls unter GPL-3.0-or-later</li>
+        </ul>
+      </article>
+    </div>
+
+    <p class="note">Die Lizenzen der mitgelieferten Fremdkomponenten sind in <code>THIRD_PARTY_LICENSES.md</code> im Quellcode aufgeführt.</p>
+  </div>
+</section>
+
+<!-- ================= DOWNLOAD ================= -->
+<section id="download" class="block alt">
+  <div class="wrap narrow">
+    <h2>Herunterladen</h2>
+    <p class="sub">Zwei gleichwertige Wege zum vollen Programm: die fertige Windows-Datei zum sofortigen Losarbeiten oder der Quellcode. Der Funktionsumfang ist in beiden Fällen derselbe.</p>
+
+    <div class="download-card">
+      <div class="download-info">
+        <h3>Fertige Windows-Version</h3>
+        <p>Einzelne .exe, keine Installation, keine Internetverbindung nötig &ndash; herunterladen, doppelklicken, das Programm öffnet sich im Browser.</p>
+        <!-- Version hier bei jedem Austausch anpassen: -->
+        <p class="download-meta">Version 1.4 &middot; Stand 25. September 2026 &middot; Windows-PC</p>
+      </div>
+      <a href="https://github.com/aifoamcut/ai-foam-cut/releases/latest/download/AI-Foam-Cut.exe" class="btn">.exe herunterladen</a>
+    </div>
+
+    <div class="download-card full">
+      <div class="download-info">
+        <h3>Quellcode (GPL-3.0)</h3>
+        <p>Das ganze Projekt auf GitHub: lesen, klonen, ändern, eigene .exe bauen. Mit Python 3.11 oder neuer läuft es auch unter Linux und macOS.</p>
+        <p class="download-meta">git clone https://github.com/aifoamcut/ai-foam-cut.git</p>
+      </div>
+      <a href="https://github.com/aifoamcut/ai-foam-cut" class="btn">Zum Repository</a>
+    </div>
+
+    <p class="note">Beide Knöpfe führen zu <a href="https://github.com/aifoamcut/ai-foam-cut" target="_blank" rel="noopener">GitHub</a>; die Dateien liegen nicht auf dieser Website. Ein GitHub-Konto ist dafür nicht nötig. Dabei erfährt GitHub (GitHub B.V. / GitHub, Inc.) die üblichen Verbindungsdaten wie deine IP-Adresse &ndash; siehe <a href="rechtliches.html#datenschutz">Datenschutzerklärung</a>.</p>
+
+    <p class="note">Bei einer neuen, nicht signierten .exe zeigt Windows unter Umständen eine Warnung („SmartScreen“). Für dieses freie Projekt wird kein kostenpflichtiges Signaturzertifikat gekauft. Wer der Datei nicht vertrauen möchte, baut sie mit <code>python build_tool.py</code> selbst aus dem Quellcode.</p>
+
+    <p class="note">Hinweis: AI Foam Cut ist ein Einzelprojekt und wurde mit Unterstützung von KI entwickelt. Die Software ist nicht zertifiziert und trägt keinen Konformitätsnachweis für den Maschinenbetrieb. Sie befindet sich in aktiver Entwicklung und wird ohne jede Gewährleistung bereitgestellt &ndash; Download und Betrieb erfolgen auf eigenes Risiko; für Schäden am Computer, am Betriebssystem, an Daten oder an der Maschine wird im gesetzlich zulässigen Rahmen keine Haftung übernommen (Abschnitte 15&ndash;17 der GPL-3.0). Eine erreichbare Not-Aus-Einrichtung ist Voraussetzung, und jedes Programm gehört vor dem Schnitt in die Simulation. Es gilt der <a href="rechtliches.html#haftung">Haftungsausschluss</a>.</p>
+  </div>
+</section>
+
+<!-- ================= SPENDEN ================= -->
+<section id="spenden" class="block">
+  <div class="wrap narrow">
+    <h2>Projekt unterstützen</h2>
+    <p class="sub">AI Foam Cut ist und bleibt kostenlos. Wer etwas zurückgeben möchte, kann das freiwillig über PayPal tun &ndash; das hilft bei laufenden Kosten wie Domain und Webspace, bei Material für Testschnitte und bei der Zeit für die Weiterentwicklung.</p>
+
+    <div class="contact-card">
+      <!-- PayPal.me-Adresse des Projekts: -->
+      <a class="btn" href="https://paypal.me/AIfoamcut" target="_blank" rel="noopener">Mit PayPal spenden</a>
+      <p class="note">Der Knopf öffnet PayPal in einem neuen Tab; den Betrag legst du dort selbst fest. Diese Website bindet kein PayPal-Skript und keinen Zählpixel ein &ndash; erst beim Klick besteht eine Verbindung zu PayPal.</p>
+      <p class="note">Eine Spende ist eine freiwillige Zuwendung ohne Gegenleistung: Sie kauft keine Lizenz, keinen Vorrang bei Fehlerberichten und keinen Anspruch auf Unterstützung &ndash; das Programm ist ohnehin vollständig frei. Es wird keine Rechnung ausgestellt.</p>
+    </div>
+
+    <p class="note">Lieber ohne Geld helfen? Fehlerberichte, Verbesserungsvorschläge, Übersetzungen und Erfahrungsberichte aus der Werkstatt sind genauso willkommen &ndash; siehe <a href="#quellcode">Open Source</a>.</p>
+  </div>
+</section>
+
+<!-- ================= KONTAKT ================= -->
+<section id="kontakt" class="block alt">
+  <div class="wrap narrow">
+    <h2>Kontakt</h2>
+    <p class="sub">Fragen, Fehlerberichte oder Rückmeldungen aus der Werkstatt: schreib mir einfach eine E-Mail. Fehler und Wünsche gern auch direkt als Issue auf <a href="https://github.com/aifoamcut/ai-foam-cut/issues" target="_blank" rel="noopener">GitHub</a>.</p>
+    <div class="contact-card">
+      <a class="btn" href="mailto:ai.foam.cut@gmail.com?subject=%5BAI%20Foam%20Cut%5D%20Anfrage">ai.foam.cut@gmail.com</a>
+      <p class="note">Bei einem Fehler bitte kurz angeben, welche Maschine/Steuerung im Einsatz ist &ndash; und wenn möglich die Projektdatei mitschicken.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>© <span id="year"></span> AI Foam Cut</span>
+    <span class="foot-links">
+      <a href="rechtliches.html#impressum">Impressum</a>
+      <a href="rechtliches.html#datenschutz">Datenschutz</a>
+      <a href="rechtliches.html#haftung">Haftungsausschluss</a>
+      <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GPL-3.0</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // Lightbox: Screenshot per Klick vergrößern.
+  (function () {
+    var box = document.createElement('div');
+    box.className = 'lightbox';
+    box.hidden = true;
+    box.innerHTML = '<button class="lb-close" aria-label="Schließen">&times;</button><img alt="">';
+    document.body.appendChild(box);
+    var big = box.querySelector('img');
+
+    function open(src, alt) {
+      big.src = src; big.alt = alt || '';
+      box.hidden = false;
+      requestAnimationFrame(function () { box.classList.add('open'); });
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      box.classList.remove('open');
+      document.body.style.overflow = '';
+      setTimeout(function () { box.hidden = true; big.src = ''; }, 160);
+    }
+    document.querySelectorAll('.shot img').forEach(function (img) {
+      img.addEventListener('click', function () { open(img.currentSrc || img.src, img.alt); });
+    });
+    box.addEventListener('click', close);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !box.hidden) close(); });
+  })();
+
+</script>
+</body>
+</html>

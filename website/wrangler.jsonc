@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/wrangler@latest/config-schema.json",
+  // Rein statische Website (Ordner "site"). Kein Worker-Skript, keine Datenbank,
+  // keine Schnittstelle - seit der Umstellung auf Open Source muessen keine
+  // Demo-Lizenzen mehr ausgegeben werden.
+  // Name MUSS "website" bleiben: so heisst der bereits veroeffentlichte Worker.
+  // Ein anderer Name erzeugt einen zweiten Worker und kollidiert bei den Domains.
+  "name": "website",
+  "compatibility_date": "2026-09-25",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "site"
+  },
+  "routes": [
+    { "pattern": "ai-foam-cut.com", "custom_domain": true },
+    { "pattern": "www.ai-foam-cut.com", "custom_domain": true }
+  ]
+}

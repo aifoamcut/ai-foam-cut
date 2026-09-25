@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Foam Cut – Software for 4-axis hot-wire CNC cutters</title>
+<meta name="description" content="AI Foam Cut: free software (GPL-3.0) for CNC hot-wire cutters in model flying – wing design, core and negative-shell design, DXF shapes, 3D models, mould making and G-code simulation.">
+<link rel="alternate" hreflang="de" href="https://ai-foam-cut.com/">
+<link rel="alternate" hreflang="en" href="https://ai-foam-cut.com/index-en.html">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap nav">
+    <a class="brand" href="#top">AI <span>Foam Cut</span></a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#moulds">Mould making</a>
+      <a href="#special">Special functions</a>
+      <a href="#source">Open source</a>
+      <a href="#download">Download</a>
+      <a href="#donate" class="btn small">Donate</a>
+      <a href="index.html" class="lang" lang="de" title="Deutsche Version">DE</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================= HERO ================= -->
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Free software for CNC hot-wire cutters</p>
+    <h1>From wings to complex shapes &ndash; everything in one software</h1>
+    <p class="lead">
+      AI Foam Cut covers the whole chain: design the wing, derive a core or negative shell,
+      compensate for kerf and sheeting, generate G-code, simulate it in 3D and send it to the
+      machine straight from the program. The machine control is compatible with grblHAL and
+      GRBL HotWire Mega 5X &ndash; matching information and firmware for the boards are available from
+      <a href="https://rckeith.co.uk/" target="_blank" rel="noopener">RC Keith</a>.
+    </p>
+    <p class="lead">
+      The program is <strong>open source and free of charge</strong> &ndash; released under the
+      GNU General Public License 3.0. No licence keys, no trial periods, no features behind a
+      paywall, no telemetry. Take the ready-made Windows build, or the source code if you would
+      rather look inside and build it yourself.
+    </p>
+    <div class="cta">
+      <div class="cta-downloads">
+        <a href="#download" class="btn">Download for Windows</a>
+        <a href="#source" class="btn">Browse the source code</a>
+      </div>
+      <a href="#features" class="btn ghost">How it works</a>
+    </div>
+    <figure class="shot hero-shot">
+      <img src="img/gcode.jpg" alt="3D simulation of the cut in the G-code tab: both gantries, hot wire, block and cutting paths" loading="eager">
+      <figcaption>G-code simulator: both gantries, hot wire and block in 3D, next to the generated G-code line by line. (Screenshots show the German user interface; the app itself can be switched to English in Settings.)</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ================= CORE FEATURES ================= -->
+<section id="features" class="block">
+  <div class="wrap">
+    <h2>Wings</h2>
+    <p class="sub">Every change in the design immediately affects drawing, cutting path and G-code.</p>
+
+    <div class="gallery">
+      <figure class="shot">
+        <img src="img/material.jpg" alt="Project overview tab with material assignment, wings and weight estimate" loading="lazy">
+        <figcaption><strong>Project overview.</strong> Manage project and material.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/tragflaeche.jpg" alt="Wing designer tab with planform, airfoil section and front view" loading="lazy">
+        <figcaption><strong>Wing design.</strong> Create wings.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/kern.jpg" alt="Core design tab with block geometry, cut extensions and cutting path" loading="lazy">
+        <figcaption><strong>Core design.</strong> Create cores.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/negativ.jpg" alt="Negative-shell design tab with separated upper and lower shell" loading="lazy">
+        <figcaption><strong>Negative design.</strong> Create negative shells.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ================= WORKFLOW DXF + 3D ================= -->
+<section id="dxf" class="block">
+  <div class="wrap">
+    <h2>Free contours and 3D models</h2>
+    <p class="sub">Everything that is not a wing: fuselages, tail surfaces, formers, lettering, panels from CAD.</p>
+
+    <div class="two">
+      <div class="col">
+        <figure class="shot">
+          <img src="img/dxf.jpg" alt="DXF shapes tab with rib chain in planform and INNER/OUTER contour with sync points" loading="lazy">
+        </figure>
+        <h3>Via DXF shapes</h3>
+        <ol class="mini">
+          <li>Load DXF or SVG; every layer is offered as a profile.</li>
+          <li>Check the rib chain, assign layers per segment as INNER and OUTER and align them.</li>
+          <li>Block geometry: segment width, block dimensions, minimum clearance.</li>
+          <li>Set sync points when INNER and OUTER differ.</li>
+          <li>Choose direction, kerf and safe lead-in/lead-out, then G-code and cut.</li>
+        </ol>
+        <p class="note">No DXF file? “Draw freely” opens the built-in CAD editor; the result goes straight back into DXF shapes.</p>
+      </div>
+
+      <div class="col">
+        <figure class="shot">
+          <img src="img/modell.jpg" alt="3D model tab: fuselage split into ten cross-sections with cutting planes" loading="lazy">
+        </figure>
+        <h3>Via the 3D model</h3>
+        <ol class="mini">
+          <li>Load an STL model.</li>
+          <li>Choose the cutting axis, distribute planes evenly or place them individually, split.</li>
+          <li>Per cross-section set kerf, feed rate, lead-in point and direction; start point by clicking on the path.</li>
+          <li>Use as G-code source or nest several cross-sections of equal thickness as a <em>plate</em> from one block.</li>
+          <li>Simulate, cut, glue the cross-sections together and sand.</li>
+        </ol>
+        <figure class="shot">
+          <img src="img/platte.jpg" alt="Plate mode: ten cross-sections arranged collision-free on one plate" loading="lazy">
+          <figcaption><strong>Plate mode.</strong> Several cross-sections of equal thickness are arranged automatically without collisions and cut in one program.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= TIPS + MOULD MAKING ================= -->
+<section id="moulds" class="block">
+  <div class="wrap">
+    <h2>Wing tips, winglets and mould making</h2>
+    <p class="sub">The same wing becomes a plug or a negative mould &ndash; as STL for 3D printing and CNC milling, as STEP for CAD.</p>
+
+    <div class="two">
+      <div class="col">
+        <figure class="shot">
+          <img src="img/winglet.jpg" alt="Mould making: wing plug with winglet and blended transition, winglet parameters alongside" loading="lazy">
+          <figcaption><strong>Winglet on the plug.</strong> Transition radius, cant, sweep, toe-out and tip shape &ndash; visible in 3D immediately.</figcaption>
+        </figure>
+        <h3>Wing tip and winglet</h3>
+        <ol class="mini">
+          <li>Wing tip: leading and trailing edge lines run as superellipses to the reference point. Templates modelled on real sailplanes (elliptic, crescent, raked, upswept), then length, upsweep, washout and thickness distribution freely adjustable.</li>
+          <li>Winglet with tangential transition arc: length, cant, sweep, toe-out, twist, own airfoils for root, middle and tip.</li>
+          <li>Winglet from drawing: sketch the shape in the three-view editor, the software builds the transition.</li>
+          <li>Export wing and tip or winglet separately, matched via joiner holes.</li>
+        </ol>
+      </div>
+
+      <div class="col">
+        <figure class="shot">
+          <img src="img/negform.jpg" alt="Mould making: lower half of the negative mould with cavity, flange, joiner recesses and resin groove" loading="lazy">
+          <figcaption><strong>Negative mould, lower half.</strong> Cavity and flange with recesses for the joiner, resin groove and leading-edge bump.</figcaption>
+        </figure>
+        <h3>Mould making</h3>
+        <ol class="mini">
+          <li>Choose the target: plug (positive), split plug for moulding, or both negative mould halves.</li>
+          <li>All ribs are smoothed as B-splines; allowance for paint/gelcoat and trailing-edge thickness adjustable globally.</li>
+          <li>Parting surface follows the chord surface; margins, dowel holes, joiner recesses and resin groove in the flange.</li>
+          <li>Segment large moulds into printable pieces; curvature and zebra analysis for surface checks.</li>
+          <li>Export as STL (Z up, ready to print and mill) or as STEP solid for Fusion, SolidWorks, FreeCAD.</li>
+        </ol>
+        <figure class="shot">
+          <img src="img/negschnitt.jpg" alt="Mould making: 2D section through both mould halves with airfoil, parting surface and margins" loading="lazy">
+          <figcaption><strong>Section through the mould.</strong> Check both halves at any span position: airfoil, parting surface, margins, resin groove.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SPECIAL FUNCTIONS ================= -->
+<section id="special" class="block alt">
+  <div class="wrap">
+    <div class="grid">
+      <article>
+        <h3>Project overview &amp; material database</h3>
+        <ul>
+          <li>Create and name a project</li>
+          <li>Set the number of wings</li>
+          <li>Assign design (core/negative) and material to each wing</li>
+          <li>Create materials freely: name, density, category</li>
+          <li>Calibrate kerf and heating values per material</li>
+          <li>Export and import material data</li>
+          <li>Weight estimate per wing (core, sheeting, cloth, resin)</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Wing design</h3>
+        <ul>
+          <li>Load airfoils as .dat, DXF or .bez</li>
+          <li>Any number of segments, chords, span</li>
+          <li>Sweep, washout, dihedral, hinge position</li>
+          <li>Global sweep: keep leading edge, trailing edge or hinge straight</li>
+          <li>Airfoil height alignment (highest point, hinge, chord)</li>
+          <li>Sheeting deduction</li>
+          <li>Many types of spar and hinge cut-outs</li>
+          <li>Several wings per project</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Core design</h3>
+        <ul>
+          <li>Block allowances and cut extensions per segment</li>
+          <li>Kerf compensation, selectable on upper/lower shell</li>
+          <li>Rotate workpiece (sweep) for an angled block position</li>
+          <li>Mirror and stack cores</li>
+          <li>Edit individual points</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Negative-shell design</h3>
+        <ul>
+          <li>Mould halves</li>
+          <li>Core and support material in the same cut</li>
+          <li>Split the core into individual webs (glass sleeve, spar cap, web spacing)</li>
+          <li>Edit individual points</li>
+        </ul>
+      </article>
+      <article>
+        <h3>DXF shapes</h3>
+        <ul>
+          <li>Any contours from DXF or SVG</li>
+          <li>Assign layers freely to INNER and OUTER</li>
+          <li>Sync points for differing cross-sections</li>
+          <li>Draw freely in the CAD editor</li>
+          <li>Export and import GMFC projects (.cnc)</li>
+        </ul>
+      </article>
+      <article>
+        <h3>3D model</h3>
+        <ul>
+          <li>Load an STL model</li>
+          <li>Split into cross-sections, choose cutting axis and planes freely</li>
+          <li>Hot-wire G-code per cross-section</li>
+          <li><strong>Plate mode:</strong> nest several cross-sections of equal thickness from one block</li>
+          <li>Move cross-sections and edit connecting paths</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Mould making</h3>
+        <ul>
+          <li>Plug or both negative mould halves as STL</li>
+          <li>For 3D printing and CNC milling</li>
+          <li>Smoothed airfoils, adjustable wing tip and winglet</li>
+          <li>Parting surface and dowel holes</li>
+          <li>Segmentation into printable pieces</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Rib designer</h3>
+        <ul>
+          <li>Ribs and half ribs from the wing</li>
+          <li>Sheeting and spars taken into account</li>
+          <li>Leading-edge templates as sanding aids</li>
+          <li>Export as STL or DXF</li>
+        </ul>
+      </article>
+      <article>
+        <h3>CAD editing</h3>
+        <ul>
+          <li>Built-in 2D CAD editor</li>
+          <li>Background image as template</li>
+          <li>Import from all designs</li>
+          <li>Send the result to DXF shapes</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Machine</h3>
+        <ul>
+          <li>Machine control via Web Serial (grblHAL, Mega 5X)</li>
+          <li>Jogging, homing, wire heating</li>
+          <li>$$ settings editor for the controller</li>
+        </ul>
+      </article>
+    </div>
+
+    <div class="gallery small">
+      <figure class="shot">
+        <img src="img/matdb.jpg" alt="Material database view with material properties and kerf calibration" loading="lazy">
+        <figcaption>Material database</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/cad.jpg" alt="CAD editing tab with drawing area and command line" loading="lazy">
+        <figcaption>CAD editing</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/rippen.jpg" alt="Rib designer tab" loading="lazy">
+        <figcaption>Rib designer</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/schneiden.jpg" alt="Cutting tab with block trimming and machine control" loading="lazy">
+        <figcaption>Cutting and block trimming</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ================= TECH ================= -->
+<section class="block">
+  <div class="wrap facts">
+    <div>
+      <h3>Requirements</h3>
+      <p>A Windows PC for the ready-made .exe; from source it runs anywhere with Python 3.11 or newer. The interface runs in a browser (Chrome or Edge), the machine connection uses Web Serial.</p>
+    </div>
+    <div>
+      <h3>Controllers</h3>
+      <p>grblHAL with four axes (e.g. BTT SKR Pico) or Mega 5X (GRBL HotWire Mega 5X). Axis names freely configurable. Matching information and firmware for the boards are available from <a href="https://rckeith.co.uk/" target="_blank" rel="noopener">RC Keith</a>.</p>
+    </div>
+    <div>
+      <h3>File formats</h3>
+      <p>Airfoils .dat, DXF, SVG · Models STL, OBJ, 3MF · Export G-code, DXF, STL, GMFC .cnc · Projects as JSON.</p>
+    </div>
+    <div>
+      <h3>Operation</h3>
+      <p>Starts as a single .exe with a local server, or straight from source with <code>python launcher.py</code>. No installation, no internet connection, no registration. Data stays on your own computer.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= OPEN SOURCE ================= -->
+<section id="source" class="block">
+  <div class="wrap narrow">
+    <h2>Open source</h2>
+    <p class="sub">AI Foam Cut is released in full under the <strong>GNU General Public License, version&nbsp;3 or later</strong>. The source code is open, the program stays free, and nobody has to rely on a one-person project being maintained forever.</p>
+
+    <div class="grid">
+      <article>
+        <h3>What this means for you</h3>
+        <ul>
+          <li>Use, copy and pass it on &ndash; privately and commercially, at no cost</li>
+          <li>No licence key, no activation, no trial period, no registration</li>
+          <li>Every feature is included &ndash; G-code generation and machine control too</li>
+          <li>Nothing is reported back: no telemetry, no usage statistics, no update check</li>
+          <li>The generated G-code carries no personal watermark</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Build and modify it</h3>
+        <ul>
+          <li>A plain web application with a small Python server, no build step required</li>
+          <li>Ready to run with <code>python launcher.py</code> (Python 3.11 or newer)</li>
+          <li>Build your own .exe with <code>python build_tool.py</code> (PyInstaller)</li>
+          <li><code>features.json</code> lets you tailor which features your own build contains</li>
+          <li>You may pass on your changes &ndash; openly, under the GPL again</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Contributing</h3>
+        <ul>
+          <li>Bug reports and suggestions on GitHub or by e-mail</li>
+          <li>For a bug, the project file that triggers it helps enormously</li>
+          <li>Feedback from the workshop is as valuable as code</li>
+          <li>Translations, manual, airfoil data: contributions need not be code</li>
+          <li>Contributed code is licensed under GPL-3.0-or-later as well</li>
+        </ul>
+      </article>
+    </div>
+
+    <p class="note">The licences of the bundled third-party components are listed in <code>THIRD_PARTY_LICENSES.md</code> in the source tree.</p>
+  </div>
+</section>
+
+<!-- ================= DOWNLOAD ================= -->
+<section id="download" class="block alt">
+  <div class="wrap narrow">
+    <h2>Download</h2>
+    <p class="sub">Two equal ways to the complete program: the ready-made Windows build to start right away, or the source code. The feature set is identical either way.</p>
+
+    <div class="download-card">
+      <div class="download-info">
+        <h3>Ready-made Windows build</h3>
+        <p>A single .exe, no installation, no internet connection needed &ndash; download, double-click, the program opens in your browser.</p>
+        <!-- Update the version here with every release: -->
+        <p class="download-meta">Version 1.4 &middot; 25 September 2026 &middot; Windows PC</p>
+      </div>
+      <a href="https://github.com/aifoamcut/ai-foam-cut/releases/latest/download/AI-Foam-Cut.exe" class="btn">Download the .exe</a>
+    </div>
+
+    <div class="download-card full">
+      <div class="download-info">
+        <h3>Source code (GPL-3.0)</h3>
+        <p>The whole project on GitHub: read it, clone it, change it, build your own .exe. With Python 3.11 or newer it also runs on Linux and macOS.</p>
+        <p class="download-meta">git clone https://github.com/aifoamcut/ai-foam-cut.git</p>
+      </div>
+      <a href="https://github.com/aifoamcut/ai-foam-cut" class="btn">Go to the repository</a>
+    </div>
+
+    <p class="note">Both buttons lead to <a href="https://github.com/aifoamcut/ai-foam-cut" target="_blank" rel="noopener">GitHub</a>; the files are not hosted on this website. No GitHub account is required. In doing so, GitHub (GitHub B.V. / GitHub, Inc.) receives the usual connection data such as your IP address &ndash; see the <a href="rechtliches.html#datenschutz">privacy policy</a>.</p>
+
+    <p class="note">Windows may warn about a new, unsigned .exe (&ldquo;SmartScreen&rdquo;). This free project does not buy a paid code-signing certificate. If you would rather not trust the file, build it yourself from source with <code>python build_tool.py</code>.</p>
+
+    <p class="note">Note: AI Foam Cut is a one-person project, developed with AI assistance. The software is not certified and carries no declaration of conformity for machine operation. It is under active development and comes with absolutely no warranty &ndash; downloading and running it is at your own risk; no liability is accepted, as far as legally permissible, for damage to your computer, operating system, data or machine (sections 15&ndash;17 of the GPL-3.0). A reachable emergency stop is a prerequisite, and every program belongs in the simulation before cutting. The <a href="rechtliches.html#haftung">disclaimer</a> applies.</p>
+  </div>
+</section>
+
+<!-- ================= DONATE ================= -->
+<section id="donate" class="block">
+  <div class="wrap narrow">
+    <h2>Support the project</h2>
+    <p class="sub">AI Foam Cut is free and will stay free. If you would like to give something back, you can do so voluntarily via PayPal &ndash; it helps with running costs such as domain and hosting, with material for test cuts, and with the time that goes into further development.</p>
+
+    <div class="contact-card">
+      <!-- The project's PayPal.me address: -->
+      <a class="btn" href="https://paypal.me/AIfoamcut" target="_blank" rel="noopener">Donate with PayPal</a>
+      <p class="note">The button opens PayPal in a new tab; you choose the amount there. This website embeds no PayPal script and no tracking pixel &ndash; a connection to PayPal is made only when you click.</p>
+      <p class="note">A donation is a voluntary gift with nothing in return: it buys no licence, no priority on bug reports and no claim to support &ndash; the program is entirely free anyway. No invoice is issued.</p>
+    </div>
+
+    <p class="note">Prefer to help without money? Bug reports, suggestions, translations and reports from the workshop are just as welcome &ndash; see <a href="#source">open source</a>.</p>
+  </div>
+</section>
+
+<!-- ================= CONTACT ================= -->
+<section id="contact" class="block alt">
+  <div class="wrap narrow">
+    <h2>Contact</h2>
+    <p class="sub">Questions, bug reports or feedback from the workshop: just send me an e-mail. Bugs and wishes are equally welcome as an issue on <a href="https://github.com/aifoamcut/ai-foam-cut/issues" target="_blank" rel="noopener">GitHub</a>.</p>
+    <div class="contact-card">
+      <a class="btn" href="mailto:ai.foam.cut@gmail.com?subject=%5BAI%20Foam%20Cut%5D%20Request">ai.foam.cut@gmail.com</a>
+      <p class="note">For a bug please mention briefly which machine/controller you are using &ndash; and attach the project file if you can.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>© <span id="year"></span> AI Foam Cut</span>
+    <span class="foot-links">
+      <a href="rechtliches.html#impressum">Legal notice</a>
+      <a href="rechtliches.html#datenschutz">Privacy</a>
+      <a href="rechtliches.html#haftung">Disclaimer</a>
+      <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GPL-3.0</a>
+      <span class="foot-note">(in German)</span>
+    </span>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // Lightbox: enlarge screenshot on click.
+  (function () {
+    var box = document.createElement('div');
+    box.className = 'lightbox';
+    box.hidden = true;
+    box.innerHTML = '<button class="lb-close" aria-label="Close">&times;</button><img alt="">';
+    document.body.appendChild(box);
+    var big = box.querySelector('img');
+
+    function open(src, alt) {
+      big.src = src; big.alt = alt || '';
+      box.hidden = false;
+      requestAnimationFrame(function () { box.classList.add('open'); });
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      box.classList.remove('open');
+      document.body.style.overflow = '';
+      setTimeout(function () { box.hidden = true; big.src = ''; }, 160);
+    }
+    document.querySelectorAll('.shot img').forEach(function (img) {
+      img.addEventListener('click', function () { open(img.currentSrc || img.src, img.alt); });
+    });
+    box.addEventListener('click', close);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !box.hidden) close(); });
+  })();
+</script>
+</body>
+</html>
