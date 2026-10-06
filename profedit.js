@@ -97,6 +97,9 @@
    * mit Ziel 0). Das Profil ist normiert (Sehne = 1), also ist Ziel-frac = 0. */
   function closeLoadedTE(prof) {
     if (!prof || prof.length < 4) return prof;
+    // Stufen-/Plattenprofile (KFm-Gestalter der Profildatenbank): die dicke
+    // Endleiste gehört zur Form — unverändert übernehmen.
+    if (prof.keepTE) { const c = prof.map(p => ({ x: p.x, y: p.y })); c.name = prof.name; return c; }
     const closed = thickenTE(prof, 0);
     closed.name = prof.name;
     return closed;

@@ -193,8 +193,9 @@
       cutLengthFoam: sp ? sp.foam : 0, estMinutes: sp ? sp.mins : 0 };
   }
 
-  /* Guillotine: vom unteren Punkt (xDist, Y0) unter dem gewählten Winkel rauf
-   * bis zur Höhe, dort Pause (M0), dann auf gleicher Linie runter auf Y0. */
+  /* Guillotine: auf Höhe fahren, dort Pause (M0), dann auf der Schnittlinie runter
+   * auf Y0, verweilen (meltDwell), optional Pause, in der Fuge rauf auf die
+   * Rückfahrhöhe und waagrecht zurück auf X0. */
   function guillotineGcode() {
     const gp = state.guillotine;
     const ax = { x: state.cfg.axX, y: state.cfg.axY, u: state.cfg.axU, v: state.cfg.axV };
@@ -202,8 +203,13 @@
     const feed = gp.feed || 300, H = gp.height, ang = (gp.angle || 0) * Math.PI / 180;
     const rapid = state.cfg.maxFeed || 0;         // Eilgang-Vorschub aus den Maschinendaten (0 = echtes G0)
     const upCut = gp.upMode === 'cut';            // rauf im Schnitt (Vorschub) statt Eilgang?
-    const upHeat = upCut;                          // Schnitt → Draht automatisch EIN, Eilgang → automatisch AUS
     const xBot = gp.xDist, xTop = gp.xDist + H * Math.tan(ang);
+    // X-Versatz (unterer oder oberer Schnittpunkt nicht auf X0): nie waagrecht über Y0
+    // fahren (der Draht würde unten durch den Werkstoff gezogen). Stattdessen
+    // erst senkrecht auf Höhe, dann oben waagrecht hin; nach dem Durchschneiden in
+    // der Schnittfuge wieder hoch und oben zurück, erst bei X0 runter auf Y0.
+    const offs = Math.abs(xBot) > 1e-6 || Math.abs(xTop) > 1e-6;
+    const upHeat = upCut && !offs;                 // Schnitt → Draht automatisch EIN, Eilgang → automatisch AUS; mit Versatz ist das Hinfahren reines Positionieren
     // Überfahrt unter Y0: der Draht fährt auf derselben Linie um overY ins Negative,
     // damit er sicher ganz durchschneidet (Y0 liegt evtl. knapp über der Auflage).
     const over = Math.abs(+gp.overY || 0), yEnd = -over, xEnd = xBot - over * Math.tan(ang);   // overY ist negativ (Y-Ziel), Betrag = Weg
@@ -217,8 +223,16 @@
     em('; ' + T('Höhe ') + H + T(' mm · X-Abstand unten ') + gp.xDist + T(' mm · Winkel ') + gp.angle
       + T('° · rauf ') + upLabel + (upHeat ? T(' · Draht rauf EIN') : T(' · Draht rauf AUS')) + T(' · runter Vorschub ') + feed + ' mm/min'
       + (over > 0 ? T(' · Überfahrt bis Y ') + (-over) + ' mm' : ''));
-    em('; rauf auf Höhe → Pause → runter im Schnitt auf Y0 (beide Türme identisch) · Bezug Y0 = Maschinen-Nullpunkt');
-    if (over > 0) em('; ' + T('ACHTUNG: Schnitt endet bei Y = -') + over + T(' mm (unter dem Nullpunkt) – Verfahrweg/Auflage prüfen! Dort Pause, nach Fortsetzen rauf auf Y0.'));
+    // Rückweg: 'safe' = in der Fuge nur bis zur Sicherheitshöhe retH hoch, dort waagrecht
+    // auf X0; 'path' = zurück über den Schneideweg (Fuge ganz rauf, oben zurück wie hin).
+    const retPath = gp.retMode === 'path';
+    const retY = retPath ? H : Math.max(0, Math.min(H, gp.retH != null ? +gp.retH : 10)), xRet = retPath ? xTop : xBot + retY * Math.tan(ang);
+    const pauseAfter = !!gp.pauseAfter;
+    if (offs) em('; ' + T('X-Versatz: senkrecht rauf → oben waagrecht hin → Pause → runter im Schnitt → verweilen → ')
+      + (retPath ? T('zurück über den Schneideweg (Fuge rauf, oben zurück)') : T('in der Fuge rauf auf Sicherheitshöhe ') + retY + T(' mm, waagrecht auf X0'))
+      + T(' → runter auf Y0 (beide Türme identisch) · Bezug Y0 = Maschinen-Nullpunkt'));
+    else em('; rauf auf Höhe → Pause → runter im Schnitt auf Y0 (beide Türme identisch) · Bezug Y0 = Maschinen-Nullpunkt');
+    if (over > 0) em('; ' + T('ACHTUNG: Schnitt endet bei Y = -') + over + T(' mm (unter dem Nullpunkt) – Verfahrweg/Auflage prüfen!'));
     em('G21 ; mm'); em('G90 ; absolut'); em('G94 ; Vorschub in mm/min');
     // Startvorschub schon VOR der ersten Bewegung setzen: der erste G1 kommt evtl.
     // erst nach der M0-Pause, sonst meldet der Controller error:22 (Vorschub undefiniert).
@@ -227,8 +241,15 @@
     // Draht nur einschalten, wenn er schon beim Rauffahren heiß sein soll.
     if (heat != null && upHeat) em('M3 S' + App.currentWireS() + ' ; Draht EIN (rauffahren, ' + (+heat).toFixed(0) + ' %)');
     g0(0, 0, 'Start am Maschinennullpunkt (X0/Y0)');
-    g0(xBot, 0, 'zum unteren Einstichpunkt (auf Y0)');
-    gUp(xTop, H, T('rauf auf gewünschte Höhe (Winkel ') + gp.angle + '°)');
+    // Positionieren mit Versatz: immer Eilgang/Max-Vorschub, Draht aus.
+    const gPos = (x, y, c) => rapid > 0 ? g1(x, y, rapid, c) : g0(x, y, c);
+    if (offs) {
+      gPos(0, H, T('senkrecht rauf auf Höhe (bei X0)'));
+      gPos(xTop, H, T('oben waagrecht zum oberen Schnittpunkt'));
+    } else {
+      g0(xBot, 0, 'zum unteren Einstichpunkt (auf Y0)');
+      gUp(xTop, H, T('rauf auf gewünschte Höhe (Winkel ') + gp.angle + '°)');
+    }
     // Drahtheizung während der Pause AUS (Draht brennt sonst auf der Stelle weiter).
     if (heat != null && upHeat) em('M5 ; Draht AUS für die Pause');
     em('M0 ; AUTO-PAUSE: auf Höhe erreicht. Im Reiter „Schneiden" auf „Fortsetzen" drücken');
@@ -239,19 +260,32 @@
     if (over > 0) g1(xEnd, yEnd, feed, T('Überfahrt unter Y0 (sicher durchschneiden, bis Y ') + (-over) + ' mm)');
     const dwl = +state.material.meltDwell || 0;
     if (dwl > 0) em('G4 P' + dwl + ' ; ' + T('am Nullpunkt verweilen (durchschmelzen)'));
-    if (over > 0) {
-      // Unten anhalten: Pause (Draht bleibt EIN), nach „Fortsetzen“ Draht AUS und im Eilgang zurück auf Y0.
-      em('M0 ; AUTO-PAUSE: unten (Überfahrt erreicht). Im Reiter „Schneiden" auf „Fortsetzen" drücken');
-      if (heat != null) em('M5 ; Draht AUS (nach Fortsetzen)');
-      g0(xBot, 0, T('nach Fortsetzen: rauf auf Y0 (Eilgang, Draht aus)'));
+    if (pauseAfter) {
+      // Optional unten anhalten (z. B. Abschnitt entnehmen); Draht während der Pause AUS.
+      if (heat != null) em('M5 ; ' + T('Draht AUS für die Pause'));
+      em('M0 ; AUTO-PAUSE: ' + T('Schnitt unten fertig. Im Reiter „Schneiden" auf „Fortsetzen" drücken'));
     }
-    g0(0, 0, 'zurück auf den Maschinennullpunkt');
-    if (heat != null && !(over > 0)) em('M5 ; Draht AUS');
+    if (offs) {
+      // In der Schnittfuge wieder rauf bis zur Rückfahrhöhe (Rauffahren: Schnitt = Draht
+      // EIN mit Vorschub, Eilgang = Draht AUS), dort waagrecht auf X0, dann runter auf Y0.
+      const wireOn = heat != null && !pauseAfter;          // läuft der Draht gerade?
+      if (wireOn && !upCut) em('M5 ; ' + T('Draht AUS (rauf in der Fuge)'));
+      if (heat != null && pauseAfter && upCut) em('M3 S' + App.currentWireS() + ' ; ' + T('Draht EIN (rauf in der Fuge, ') + (+heat).toFixed(0) + ' %)');
+      gUp(xRet, retY, retPath ? T('Schneideweg zurück: in der Fuge rauf auf Höhe') : T('in der Schnittfuge rauf auf Sicherheitshöhe ') + retY + ' mm');
+      if (heat != null && upCut) em('M5 ; Draht AUS');
+      gPos(0, retY, retPath ? T('oben waagrecht zurück auf X0') : T('waagrecht zurück auf X0 (Sicherheitshöhe ') + retY + ' mm)');
+      gPos(0, 0, T('senkrecht runter auf den Maschinennullpunkt'));
+    } else {
+      if (heat != null && !pauseAfter) em('M5 ; Draht AUS');
+      g0(0, 0, 'zurück auf den Maschinennullpunkt');
+    }
     em('M2 ; Ende');
     // Bewusst OHNE applyPreheat (kein Aufheizen beim ersten Hochfahren) — aber
     // die Aufheizzeit nach der Pause mit ausgeschaltetem Draht wird eingerechnet.
     const text = applyPauseReheat(out.join('\n'));
-    return { text, lines: text.split('\n').length, cutLength: 2 * Math.hypot(xBot - xTop, H) + 2 * Math.hypot(xEnd - xBot, over) };
+    const ovL = Math.hypot(xEnd - xBot, over), down = Math.hypot(xBot - xTop, H) + ovL;
+    const up = !upCut ? 0 : offs ? Math.hypot(xRet - xBot, retY) + ovL : Math.hypot(xBot - xTop, H);   // rauf im Schnitt (mit Versatz nur bis zur Rückfahrhöhe)
+    return { text, lines: text.split('\n').length, cutLength: down + up };
   }
   /* Block horizontal: waagrechte, planare Schnitte über die Blocklänge (beide
    * Türme identisch). mode='height' trennt nur oben auf Zielhöhe yTop (von hinten
@@ -889,14 +923,14 @@
       if (!r) {
         text = ''; state.lastGcode = { text, cutLengthFoam: 0, estMinutes: 0, lines: 0 };
         setGcode(text, new Set());
-        if (info) info.textContent = T('Kein Profil — im Reiter „Tragflächenausschnitt" ein Profil wählen.');
+        if (info) info.textContent = T('Kein Profil — im Reiter „Ausschnitte" ein Profil wählen.');
         Sim3D.load(text, App.buildAusschnittScene ? App.buildAusschnittScene() : null);
         return;
       }
       text = applyFeedMode(applyPreheat(r.text)); cutLen = r.cutLengthFoam || 0; mins = r.estMinutes || 0; lines = text.split('\n').length;
       state.lastGcode = { text, cutLengthFoam: cutLen, estMinutes: mins, lines };
       setGcode(text, feedJumpLines(text));
-      if (info) info.textContent = `${lines}${T(' Zeilen · Tragflächenausschnitt · Schnittlänge ')}${cutLen.toFixed(0)}${T(' mm · ~')}${mins.toFixed(1)}${T(' min')}`;
+      if (info) info.textContent = `${lines}${T(' Zeilen · ') + (window.Ausschnitt ? Ausschnitt.label() : T('Ausschnitte')) + T(' · Schnittlänge ')}${cutLen.toFixed(0)}${T(' mm · ~')}${mins.toFixed(1)}${T(' min')}`;
       Sim3D.load(text, r.scene);
       return;
     }

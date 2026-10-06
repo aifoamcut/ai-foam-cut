@@ -10,13 +10,16 @@
  *   rot: (v, yaw, pitch) => [x, yOben, z],  // Welt-Richtung -> Kamera, wie die Ansicht selbst
  *   k: [kYaw, kPitch],                   // Ziehfaktoren je Pixel (Vorzeichen wie die Ansicht)
  *   labels: { '+x': 'Endleiste', ... },  // Beschriftung je Weltachse
- *   active: () => true                   // optional: nur in bestimmten Modi zeigen
+ *   active: () => true,                  // optional: nur in bestimmten Modi zeigen
+ *   reset: () => {}                      // optional: „Ansicht wiederherstellen“ (⌂-Knopf + Pos1-Taste)
  * })
+ * ViewCube.home({ canvas, reset, active })  // nur der ⌂-Knopf, für 3D-Ansichten ohne Würfel
  */
 (function () {
   'use strict';
   const T = (s) => (window.I18N ? window.I18N.t(s) : s);
   const SIZE = 104, SZ = 25, CUT = 0.6;   // Canvasgröße (CSS-px), halbe Würfelkante (px), Feldgrenze
+  const HOME = 24;                        // ⌂-Knopf „Ansicht wiederherstellen“ (CSS-px)
   const FACES = [
     { n: [1, 0, 0], u: [0, 0, 1], v: [0, 1, 0], k: '+x' }, { n: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0], k: '-x' },
     { n: [0, 1, 0], u: [1, 0, 0], v: [0, 0, 1], k: '+y' }, { n: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1], k: '-y' },
@@ -123,10 +126,26 @@
 
   function place(c) {
     const cv = c.o.canvas && c.o.canvas();
-    const show = !!(cv && cv.offsetParent && cv.clientWidth > 2 * SIZE && cv.clientHeight > SIZE && (!c.o.active || c.o.active()));
-    if (!show) { if (c.el.style.display !== 'none') c.el.style.display = 'none'; return; }
+    const mw = c.el ? 2 * SIZE : 4 * HOME, mh = c.el ? SIZE : 2 * HOME;
+    const show = !!(cv && cv.offsetParent && cv.clientWidth > mw && cv.clientHeight > mh && (!c.o.active || c.o.active()));
+    c.cv = show ? cv : null;
+    if (!show) {
+      if (c.el && c.el.style.display !== 'none') c.el.style.display = 'none';
+      if (c.home && c.home.style.display !== 'none') c.home.style.display = 'none';
+      return;
+    }
+    const right = cv.offsetLeft + cv.clientWidth - 4, top = cv.offsetTop + 4;
+    if (c.home) {
+      // ⌂ links neben dem Würfel (ohne Würfel: in der Ecke oben rechts)
+      if (c.home.parentNode !== cv.parentNode) cv.parentNode.insertBefore(c.home, cv.nextSibling);
+      const l = right - (c.el ? SIZE : 0) - HOME + 'px', t = top + 'px';
+      if (c.home.style.left !== l) c.home.style.left = l;
+      if (c.home.style.top !== t) c.home.style.top = t;
+      if (c.home.style.display === 'none') c.home.style.display = '';
+    }
+    if (!c.el) return;
     if (c.el.parentNode !== cv.parentNode) cv.parentNode.insertBefore(c.el, cv.nextSibling);
-    const l = cv.offsetLeft + cv.clientWidth - SIZE - 4 + 'px', t = cv.offsetTop + 4 + 'px';
+    const l = right - SIZE + 'px', t = top + 'px';
     if (c.el.style.left !== l) c.el.style.left = l;
     if (c.el.style.top !== t) c.el.style.top = t;
     if (c.el.style.display === 'none') { c.el.style.display = ''; c.sig = ''; }
@@ -134,6 +153,44 @@
     if (sig !== c.sig) { c.sig = sig; paint(c); }
   }
   function loop() { for (const c of cubes) { try { place(c); } catch (e) { /* Ansicht noch nicht bereit */ } } requestAnimationFrame(loop); }
+
+  // ⌂-Knopf „Ansicht wiederherstellen“: setzt Drehung, Zoom, Verschiebung und Drehpunkt
+  // der Ansicht auf den Ausgangszustand (o.reset). Pos1 über dem 3D-Bild tut dasselbe.
+  function doReset(c) { try { c.o.reset(); if (c.o.redraw) c.o.redraw(); } catch (e) { /* Ansicht noch nicht bereit */ } }
+  function mkHome(c) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'vc-home'; b.textContent = '⌂';
+    b.title = T('Ansicht wiederherstellen: Standard-Schrägansicht, Zoom, Verschiebung und Drehpunkt zurücksetzen (Pos1)');
+    b.style.cssText = 'position:absolute;width:' + HOME + 'px;height:' + HOME + 'px;padding:0;z-index:6;display:none;font-size:15px;line-height:1;opacity:.85';
+    b.addEventListener('mousedown', e => e.stopPropagation());
+    b.addEventListener('dblclick', e => e.stopPropagation());
+    b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); doReset(c); });
+    return b;
+  }
+  function track(c) {
+    cubes.push(c);
+    if (cubes.length === 1) {
+      requestAnimationFrame(loop);
+      // Pos1 über einer sichtbaren 3D-Ansicht (nicht beim Tippen in Feldern)
+      let mx = -1, my = -1;
+      window.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; }, { passive: true });
+      window.addEventListener('keydown', e => {
+        if (e.key !== 'Home' || e.ctrlKey || e.altKey || e.metaKey) return;
+        const a = document.activeElement; if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+        for (const q of cubes) {
+          if (!q.home || !q.cv) continue;
+          const r = q.cv.getBoundingClientRect();
+          if (mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom) { e.preventDefault(); doReset(q); return; }
+        }
+      });
+    }
+  }
+  function home(o) {
+    const c = { o, el: null, home: null };
+    c.home = mkHome(c);
+    track(c);
+    return c;
+  }
 
   function attach(o) {
     const el = document.createElement('canvas');
@@ -167,8 +224,8 @@
     el.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
     el.addEventListener('contextmenu', e => e.preventDefault());
     el.addEventListener('dblclick', e => e.stopPropagation());
-    cubes.push(c);
-    if (cubes.length === 1) requestAnimationFrame(loop);
+    if (o.reset) c.home = mkHome(c);
+    track(c);
     return c;
   }
 
@@ -178,5 +235,43 @@
     const x1 = v[0] * cy + v[2] * sy, z1 = -v[0] * sy + v[2] * cy;
     return [x1, v[1] * cp - z1 * sp, v[1] * sp + z1 * cp];
   };
-  window.ViewCube = { attach, ROT_STD, solve };
+  // Mausrad-Doppelklick (zweimal mittlere Taste ≤ 450 ms, ≤ 6 px auseinander) auf dem
+  // 3D-Canvas: fn(x, y, e) mit Canvas-Koordinaten (CSS-px). Liefert fn true, wird der
+  // zweite Druck verschluckt (kein Verschieben-Start). Läuft in der Capture-Phase, also
+  // vor den eigenen mousedown-Handlern der Ansicht; unterdrückt das Browser-Autoscroll.
+  function midDbl(cv, fn) {
+    if (!cv || cv._midDbl) return; cv._midDbl = true;
+    let t = 0, x0 = 0, y0 = 0;
+    cv.addEventListener('mousedown', e => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, now = performance.now();
+      if (now - t < 450 && Math.hypot(x - x0, y - y0) <= 6) {
+        t = 0;
+        if (fn(x, y, e)) { e.stopImmediatePropagation(); }
+        return;
+      }
+      t = now; x0 = x; y0 = y;
+    }, true);
+    cv.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
+  }
+  // Nächster Punkt in r px Umkreis um (x, y). each(cb) ruft cb(wx, wy, wz) für jeden
+  // Kandidaten auf, proj(wx, wy, wz) -> { x, y, d? } (d = Tiefe, kleiner = vorne).
+  function pickNear(x, y, each, proj, r) {
+    let dm = r || 14, best = null, bd = Infinity;
+    each((a, b, c) => {
+      const q = proj(a, b, c); if (!q || !isFinite(q.x) || !isFinite(q.y)) return;
+      const dd = Math.hypot(q.x - x, q.y - y), dz = q.d == null ? 0 : q.d;
+      if (dd < dm - 3 || (dd <= dm + 3 && dz < bd)) { dm = Math.min(dm, dd); bd = dz; best = [a, b, c]; }
+    });
+    return best;
+  }
+  // Markierung des gesetzten Drehpunkts (gelbes Fadenkreuz wie im Formenbau).
+  function drawPivot(ctx, x, y) {
+    if (!ctx || !isFinite(x) || !isFinite(y)) return;
+    ctx.save(); ctx.strokeStyle = 'rgba(255,220,80,.9)'; ctx.lineWidth = 1.2; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y); ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke(); ctx.restore();
+  }
+  window.ViewCube = { attach, home, ROT_STD, solve, midDbl, pickNear, drawPivot };
 })();

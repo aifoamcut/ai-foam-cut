@@ -57,6 +57,7 @@
     formTipPTE: 2,             // dito Endleiste
     formTipRef: 50,            // Bezugspunkt in % der Sehne (Ziel des Randbogens)
     formTipRise: 0,            // Hochziehen am Ende (mm)
+    formTipDih: 0,             // V-Form des Randbogens / Winglets: Knick an der Trennebene (°, positiv = nach oben)
     formTipTwist: 0,           // Schränkung am Ende (°, positiv = Endleiste nach oben / Washout)
     formTipThk: 100,           // Dicke am Ende in % (relative Profildicke wird verjüngt)
     formWlFlatLen: 20,         // Winglet: waagrechter Teil vor dem Übergangsbogen (mm, 0 = keiner)
@@ -192,6 +193,7 @@
     formSegN: 2,               // Stückzahl bei 'n'
     formSegMax: 200,           // maximale Stücklänge (mm) bei 'max'
     formSegGap: 15,            // Vorschau: Stücke auseinanderziehen (mm)
+    formSegDir: 'part',        // Winglet-Form: Trennebenen 'part' senkrecht zur Trennfläche | 'back' senkrecht zum ebenen Formhinterbau | 'z' senkrecht zur Spannweite
     formSegPin: false,         // Passstifte an den Trennstellen: Sacklöcher senkrecht zur Schnittebene, beidseitig deckungsgleich
     formSegPinN: 2,            // Anzahl je Trennstelle
     formSegPinD: 4,            // Durchmesser (mm)
@@ -201,6 +203,9 @@
     formStation: 0,            // Profilansicht: Station
     formView: '3d',            // '3d' | 'prof'
     formGap: 30,               // Vorschau: Formhälften auseinanderziehen (mm)
+    formBackMode: 'follow',    // Winglet-Form, Hinterbau: 'follow' folgt der Biegung | 'equal' ebene Auflagefläche, gleicher Winkel zu beiden Schenkeln | 'ends' Ebene durch die Enden | 'angle' eigener Winkel
+    formBackAng: 45,           // … eigener Winkel der Auflagefläche zum waagrechten Teil (°)
+    formBackAdd: 0,            // … Zugabe: Auflagefläche parallel nach außen versetzt (mm)
     formCutOn: false,          // Schnittansicht aktiv
     formCutAxis: 'z',          // Schnittebene senkrecht zu: 'z' Spannweite (Rippenschnitt) | 'x' Sehne | 'y' Höhe
     formCutPos: 0,             // Lage der Ebene (mm, Modellkoordinaten)
@@ -661,7 +666,7 @@
     else if (opt.tipMode === 'wldraw') wl = wingletDrawRings(last, prev, opt);
     // globale Endleistendicke: Randbogen-/Winglet-Ringe sind skalierte Profile -> absolutes Maß erst hier
     if (opt.teThk > 0) { rings = rings.map(r => teThickApply(r, opt.teThk)); if (wl) wl = wl.map(r => teThickApply(r, opt.teThk)); }
-    return { rings, stations, tipStart, wl, plan: plan ? plan.name : null, fadeStart };
+    return { rings, stations, tipStart, wl, plan: plan ? plan.name : null, fadeStart, tipDih: opt.tipMode === 'flat' ? 0 : +opt.tipDih || 0 };
   }
 
   /* Ringe (Rippen) senkrecht zur Nasenleiste in der Vorderansicht: jeder Ring wird als exakter Schnitt der
@@ -704,7 +709,49 @@
       });
       return Object.assign({}, r, { pts });
     });
-    return Object.assign({}, W, { rings: out, tilted: true });
+    return kinkTip(Object.assign({}, W, { rings: out, tilted: true }), seg[seg.length - 1].t);
+  }
+  /* V-Form des Randbogens / Winglets (W.tipDih Grad, positiv = Spitze nach oben): Knick an der Trennebene.
+   * Der ganze Abschluss (Randbogen- bzw. Winglet-Ringe) wird um die Sehnenachse (∥ x) durch die Nase der
+   * Endrippe gedreht. Die Trennebene ist die Winkelhalbierende des Knicks (Normale unter φ + δ/2, φ = V-Form
+   * des letzten Segments): Tragfläche und Abschluss werden beide daran abgeschnitten — jedes Teil nimmt die
+   * halbe Knickwinkel-Abweichung auf, die Steckungsbohrungen stehen senkrecht auf der Halbierenden und gehen
+   * gerade durch beide Teile. Querschnitt an der Trennebene = Schnitt der Tragflächen-Regelfläche (an den
+   * Enden extrapoliert); Abschlussringe, die die Ebene noch berühren, und Flügelringe dahinter entfallen. */
+  function kinkTip(W, tanPhi) {
+    const d = (+W.tipDih || 0) * Math.PI / 180, R = W.rings, ts = W.tipStart;
+    if (Math.abs(d) < 1e-6 || ts == null || ts < 1 || !(W.wl ? W.wl.length : R.length > ts + 1)) return W;
+    const rib = R[ts], iLE = leIndex(rib.pts.length), zOf = (r, i) => r.pts[i].z == null ? r.z : r.pts[i].z;
+    const yP = rib.pts[iLE].y, zP = zOf(rib, iLE);
+    const a = Math.atan(tanPhi || 0) + d / 2, sa = Math.sin(a), ca = Math.cos(a);
+    const gb = (y, z) => (y - yP) * sa + (z - zP) * ca;   // > 0: Seite des Abschlusses
+    const g = (k, i) => gb(R[k].pts[i].y, zOf(R[k], i));
+    const joint = Object.assign({}, rib, { z: zP, pts: rib.pts.map((p, i) => {
+      let k = ts - 1;
+      if (g(k, i) > 0) { while (k > 0 && g(k, i) > 0) k--; } else { while (k < ts - 1 && g(k + 1, i) < 0) k++; }
+      const g0 = g(k, i), g1 = g(k + 1, i), dd = g1 - g0, s = Math.abs(dd) < 1e-12 ? 0 : -g0 / dd;
+      const A = R[k].pts[i], B = R[k + 1].pts[i], za = zOf(R[k], i), zb = zOf(R[k + 1], i);
+      return { x: A.x + (B.x - A.x) * s, y: A.y + (B.y - A.y) * s, z: za + (zb - za) * s };
+    }) });
+    joint.pts[iLE] = { x: joint.pts[iLE].x, y: yP, z: zP };   // Nase exakt auf der Drehachse
+    let kEnd = ts - 1;
+    while (kEnd > 0 && R[kEnd].pts.some((p, i) => g(kEnd, i) > -1e-6)) kEnd--;
+    const cd = Math.cos(d), sd = Math.sin(d);
+    const rot = (y, z) => { const dy = y - yP, dz = z - zP; return [yP + dz * sd + dy * cd, zP + dz * cd - dy * sd]; };
+    const rotV = v => v && [v[0], v[2] * sd + v[1] * cd, v[2] * cd - v[1] * sd];
+    const rotRing = r => {
+      const pts = r.pts.map(p => { const q = rot(p.y, p.z == null ? r.z : p.z); return Object.assign({}, p, { y: q[0], z: q[1] }); });
+      const o = Object.assign({}, r, { pts, z: pts[leIndex(pts.length)].z });
+      if (r.fr) { const O = rot(r.fr.O[1], r.fr.O[2]); o.fr = Object.assign({}, r.fr, { O: [r.fr.O[0], O[0], O[1]], ex: rotV(r.fr.ex), en: rotV(r.fr.en) }); }
+      return o;
+    };
+    const keep = rs => { let j = 0; while (j < rs.length - 1 && rs[j].pts.some(p => gb(p.y, p.z) < 1e-6)) j++; return rs.slice(j); };
+    const wing = R.slice(0, kEnd + 1).concat([joint]);
+    const out = Object.assign({}, W, { tipStart: wing.length - 1, kink: { yP, zP, ang: d, plane: a } });
+    if (W.wl) { out.rings = wing; out.wl = keep(W.wl.map(rotRing)); }
+    else out.rings = wing.concat(keep(R.slice(ts + 1).map(rotRing)));
+    if (out.fadeStart != null) out.fadeStart = Math.min(out.fadeStart, out.tipStart);
+    return out;
   }
 
   // ---------- Randbogen (parametrisch, nach realen Segelflugzeugen) ------
@@ -868,7 +915,7 @@
     // Zielverlauf über (Wurzeltiefe, dann Verjüngung auf die Spitzentiefe; die Verjüngung setzt
     // mit Steigung 0 ein und wird dann linear -> C1). Die Nase folgt aus Endleiste − Tiefe und
     // ist damit überall stetig differenzierbar (keine Knicke/Huckel).
-    const xLEline = t => t <= Lf ? e.xLE + tanW * t + (tanF - tanW) * Lf * ismooth(t / Lf) : xF + tanF * (t - Lf);
+    const xLEline = t => t < Lf ? e.xLE + tanW * t + (tanF - tanW) * Lf * ismooth(t / Lf) : xF + tanF * (t - Lf);
     const cLine = t => Math.max(0.15 * c0, xTEat(t) - xLEline(t));
     const t0 = Math.min(Math.max(0, w.stepAt), Lf + Lb);
     const Lr = Math.max(1, w.step > 0 ? Math.min(w.step, Tt - t0) : Lf + Lb - t0), tEnd = Math.min(Tt, t0 + Lr);
@@ -882,10 +929,10 @@
       return cTarget(t);
     };
     // s = Bogenlänge ab Ende des waagrechten Teils (negativ = im waagrechten Teil).
-    const ringAt = (s, shrink) => {
+    const secAt = s => {   // Mittellinie (Winkel th, Nasenpunkt y/z) sowie Profil P und Anstellung a, noch ohne Höhenausgleich
       let th, y, z, P, a;
-      const t = Lf + s, c = cAt(t), xLE = xTEat(t) - c;
       if (s < 0) {
+        const t = Lf + s;
         th = th0; z = last.z + t * Math.cos(th0); y = yLE0 + t * Math.sin(th0);
         P = Pw; a = 0;
       } else if (s <= Lb) {
@@ -898,6 +945,38 @@
         a = toe + tw * v;
         P = Pm ? (v < mp ? lerpRing(Pr, Pm, v / mp) : lerpRing(Pm, Pt, (v - mp) / (1 - mp))) : lerpRing(Pr, Pt, v);
       }
+      return { th, y, z, P, a };
+    };
+    /* Oberseite ohne Grube: der Rücksprung macht das Profil dünner – symmetrisch zur Nasenlinie sänke die
+     * Oberseite vor dem Bogen ab und stiege erst im Bogen wieder an. Deshalb wird jeder Ring entlang seiner
+     * Dickenrichtung um dAt(t) angehoben: im waagrechten Teil vollständig (höchste Stelle der Oberseite läuft
+     * als Gerade in Verlängerung der Tragfläche weiter, die Unterseite nimmt die Dickenänderung auf), im Bogen
+     * klingt der Ausgleich per Smootherstep aus – dort hebt die Biegung die Oberseite ohnehin. Danach bleibt
+     * der Versatz konstant (gerader Teil unverändert, nur parallel verschoben). */
+    const topOf = t => {
+      const q = secAt(t - Lf), c = cAt(t), sa = Math.sin(q.a), ca = Math.cos(q.a);
+      let h = -Infinity; for (const p of q.P) h = Math.max(h, c * (p.x * sa + p.y * ca));
+      return h;
+    };
+    const tB = Lf + Lb, nD = Math.max(1, Math.ceil(tB / 0.25)), hD = tB / nD, dTab = [0];
+    const mTop = hUp / c0 * (sl.dxTE - sl.dx);   // Steigung der Oberseiten-Höhe im letzten Flügelsegment (Zuspitzung) läuft weiter
+    for (let j = 1, hPrev = topOf(0); j <= nD; j++) {
+      const tm = (j - 0.5) * hD, h = topOf(j * hD), dH = h - hPrev;
+      let dd = (mTop * hD - dH) * (tm <= Lf ? 1 : 1 - sm2((tm - Lf) / Lb));
+      // harte Untergrenze im Bogen: die Oberseite darf nie unter die Richtung der Tragfläche abfallen
+      if (tm > Lf) dd = Math.max(dd, -dH - Math.max(0, 1 - (dTab[j - 1] + hPrev) / Rb) * Math.tan(Math.min(1.4, (tm - Lf) / Rb)) * hD);
+      dTab.push(dTab[j - 1] + dd); hPrev = h;
+    }
+    const dAt = t => {
+      if (t <= 0) return 0;
+      if (t >= tB) return dTab[nD];
+      const f = t / hD, j = Math.min(nD - 1, Math.floor(f));
+      return dTab[j] + (dTab[j + 1] - dTab[j]) * (f - j);
+    };
+    const ringAt = (s, shrink) => {
+      const t = Lf + s, c = cAt(t), xLE = xTEat(t) - c;
+      const q = secAt(s), th = q.th, P = q.P, a = q.a, d = dAt(t);
+      const y = q.y + d * Math.cos(th), z = q.z - d * Math.sin(th);
       const ca = Math.cos(a), sa = Math.sin(a), ct = Math.cos(th), st = Math.sin(th);
       const loc = P.map(q => { const { u, v } = wlTipUV(q, shrink); return { x: c * (u * ca - v * sa), y: c * (u * sa + v * ca) }; });
       // fr: Ringsystem (Nase, Sehnenrichtung ex, Dickenrichtung en – um den Anstellwinkel a gedreht) für den Formenbau
@@ -911,11 +990,11 @@
     // seit dem letzten Ring um > 2° gedreht hat oder der Ringabstand erreicht ist. Rücksprung und
     // Übergangsbogen werden so fein aufgelöst -> runde, stetig verlaufende Nase statt Facetten.
     const lePt = t => {
-      const s = t - Lf; let y, z;
+      const s = t - Lf, d = dAt(t); let th = th0, y, z;
       if (s < 0) { z = last.z + t * Math.cos(th0); y = yLE0 + t * Math.sin(th0); }
-      else if (s <= Lb) { const th = th0 + s / Rb; z = zF + Rb * (Math.sin(th) - Math.sin(th0)); y = yF - Rb * (Math.cos(th) - Math.cos(th0)); }
-      else { z = zb + (s - Lb) * Math.cos(th1); y = yb + (s - Lb) * Math.sin(th1); }
-      return [xTEat(t) - cAt(t), y, z];
+      else if (s <= Lb) { th = th0 + s / Rb; z = zF + Rb * (Math.sin(th) - Math.sin(th0)); y = yF - Rb * (Math.cos(th) - Math.cos(th0)); }
+      else { th = th1; z = zb + (s - Lb) * Math.cos(th1); y = yb + (s - Lb) * Math.sin(th1); }
+      return [xTEat(t) - cAt(t), y + d * Math.cos(th), z - d * Math.sin(th)];
     };
     const dt = Math.min(0.25, step / 8), ANG = 2 * Math.PI / 180;
     let tLast = 0, pLast = lePt(0), dirRef = null, pPrev = pLast;
@@ -1420,20 +1499,297 @@
     if (o.part === 'tip') return tipSpine(W, o);
     return W;
   }
-  // Abgerolltes Netz über frameAt(s) zurückbiegen; meldet fold (Radius), wenn sich die Innenseite der Biegung faltet.
-  /* dy = Versatz senkrecht zur Trennflaeche, VOR dem Biegen aufgebracht (Vorschau: Haelften
-   * auseinanderziehen). Beim gebogenen Winglet wird er dadurch mitgebogen und trennt die Haelften
-   * ueberall senkrecht zur Trennflaeche - ein reiner y-Versatz nach dem Biegen tut das nicht. */
-  function bendMesh(mesh, Wp, dy) {
+  /* Biegung mit Faltschutz. Punkte nahe der Trennfläche (Kavität, Flansch) folgen exakt frameAt(s). Weiter
+   * außen, an der Innenseite einer engen Biegung, wäre der Abstand zur Trennfläche größer als der Biegeradius –
+   * das Netz faltet sich dort (Rückseite der Negativform, Trennplatte des geteilten Urmodells). Deshalb wird das
+   * Ringsystem je Abstand v zur Trennfläche zunehmend über s geglättet (zweifacher gleitender Mittelwert über die
+   * Breite h): großer Abstand -> großer Biegeradius, die Rückseite rundet die Innenecke aus. Je Stufe h ist der
+   * zulässige v-Bereich aus der Jacobi-Bedingung dP/ds · t >= BEND_JMIN bekannt; zwischen den Stufen wird linear
+   * überblendet, die Abbildung bleibt also stetig. In den geraden Abschnitten ändert die Glättung nichts.
+   * Stirnflächen: die Glättung läuft ungestört über die Enden hinaus (frameAt ist dort gerade fortgesetzt). Damit
+   * die Stirnflächen trotzdem eben in der Ebene der End-Rippe liegen, wird je Punkt (x, v) die Stelle s* gesucht,
+   * an der die geglättete Fläche diese Ebene trifft, und s auf einer Auslauflänge dorthin verschoben – die
+   * ausgerundete Rückseite wird also an der Rippenebene „abgeschnitten“ statt gegen sie gequetscht (das gab
+   * Wellen und Rillen am Anschluss).
+   * b = Grenzen des abgerollten Netzes (x-Bereich für die Bedingung, z-Bereich für das Raster). */
+  const BEND_H = [0, 2, 4, 6, 9, 12, 16, 20, 25, 30, 40, 50, 65, 80, 100, 130, 160, 200], BEND_JMIN = 0.25, BEND_INF = 1e9;
+  function bendMap(Wp, b) {
+    const key = [b.mn[0], b.mx[0], b.mn[2], b.mx[2]].map(q => q.toFixed(3)).join('/');
+    if (!Wp._bm) Wp._bm = {};
+    if (Wp._bm[key]) return Wp._bm[key];
+    const uc = (b.mn[0] + b.mx[0]) / 2, yR = Wp.vRef, ds = 0.25, Hm = BEND_H[BEND_H.length - 1];
+    const z0 = b.mn[2] - Hm - 2, N = Math.ceil((b.mx[2] - b.mn[2] + 2 * Hm + 4) / ds) + 1;
+    // Bezugspunkt R(s) = Punkt (uc, vRef) der Ringebene; P = R + (x − uc)·ex + (y − vRef)·en
+    const rR = [], rX = [], rN = [];
+    for (let i = 0; i < N; i++) { const f = Wp.frameAt(z0 + i * ds); rR.push(V3.add(V3.add(f.O, V3.mul(f.ex, uc)), V3.mul(f.en, yR))); rX.push(f.ex); rN.push(f.en); }
+    const box = (A, m) => {
+      if (!m) return A;
+      const S = [[0, 0, 0]]; for (const a of A) S.push(V3.add(S[S.length - 1], a));
+      return A.map((_, i) => { const lo = Math.max(0, i - m), hi = Math.min(N - 1, i + m); return V3.mul(V3.sub(S[hi + 1], S[lo]), 1 / (hi - lo + 1)); });
+    };
+    const xs = [b.mn[0] - uc, b.mx[0] - uc];
+    const lv = BEND_H.map(h => {
+      const m = Math.round(h / 4 / ds), R = box(box(rR, m), m);
+      const ex = box(box(rX, m), m).map(V3.norm);
+      const en = box(box(rN, m), m).map((e, i) => V3.norm(V3.sub(e, V3.mul(ex[i], V3.dot(e, ex[i])))));
+      /* zulässiger Abstand je Seite: J = A + x·B + v·C >= JMIN für alle s – getrennt für die beiden x-Ränder des
+       * Netzes (hi[0/1], lo[0/1]). Die Schranke ist als Minimum linearer Funktionen konkav in x; zwischen den
+       * Rändern linear zu interpolieren (lim) liegt also auf der sicheren Seite. So bremst eine ungünstige
+       * Flanschecke (Pfeilung/Vorspur des Winglets) nicht die Kavität in der Mitte aus. */
+      const hi = [BEND_INF, BEND_INF], lo = [BEND_INF, BEND_INF], hiH = [BEND_INF, BEND_INF], loH = [BEND_INF, BEND_INF];   // …H: harte Grenze (kurz vor dem Umklappen)
+      for (let i = 1; i < N - 1; i++) {
+        const t = V3.norm(V3.cross(ex[i], en[i])), k = 1 / (2 * ds);
+        const A = V3.dot(V3.sub(R[i + 1], R[i - 1]), t) * k, B = V3.dot(V3.sub(ex[i + 1], ex[i - 1]), t) * k, C = V3.dot(V3.sub(en[i + 1], en[i - 1]), t) * k;
+        for (let j = 0; j < 2; j++) {
+          const K = Math.max(0, A + xs[j] * B - BEND_JMIN), KH = Math.max(0, A + xs[j] * B - 0.03);
+          if (C < -1e-9) { hi[j] = Math.min(hi[j], K / -C); hiH[j] = Math.min(hiH[j], KH / -C); } else if (C > 1e-9) { lo[j] = Math.min(lo[j], K / C); loH[j] = Math.min(loH[j], KH / C); }
+        }
+      }
+      return { R, ex, en, hi, lo, hiH, loH };
+    });
+    for (let k = 1; k < lv.length; k++) for (let j = 0; j < 2; j++) { lv[k].hi[j] = Math.max(lv[k].hi[j], lv[k - 1].hi[j]); lv[k].lo[j] = Math.max(lv[k].lo[j], lv[k - 1].lo[j]); }
+    const xw = (b.mx[0] - b.mn[0]) || 1;
+    const lim = (L, side, x) => { const q = L[side], tx = Math.max(0, Math.min(1, (x - b.mn[0]) / xw)); return q[0] + (q[1] - q[0]) * tx; };
+    const at = (L, z) => {   // Ringsystem der Stufe L an der Stelle z (Stufe 0 = exakt frameAt)
+      if (L === lv[0]) { const f = Wp.frameAt(z); return { R: V3.add(V3.add(f.O, V3.mul(f.ex, uc)), V3.mul(f.en, yR)), ex: f.ex, en: f.en }; }
+      const q = Math.max(0, Math.min(N - 1.000001, (z - z0) / ds)), i = Math.floor(q), u = q - i;
+      return { R: V3.lerp(L.R[i], L.R[i + 1], u), ex: V3.lerp(L.ex[i], L.ex[i + 1], u), en: V3.lerp(L.en[i], L.en[i + 1], u) };
+    };
+    // Punkt (x, v) auf der Fläche der Stufe k (+ Anteil u der nächsten) an der Stelle s
+    const pt = (dx, v, k, u, s) => {
+      let f = at(lv[k], s);
+      if (u > 0) { const g = at(lv[k + 1], s); f = { R: V3.lerp(f.R, g.R, u), ex: V3.lerp(f.ex, g.ex, u), en: V3.lerp(f.en, g.en, u) }; }
+      const ex = V3.norm(f.ex), en = V3.norm(V3.sub(f.en, V3.mul(ex, V3.dot(f.en, ex))));
+      return [f.R[0] + dx * ex[0] + v * en[0], f.R[1] + dx * ex[1] + v * en[1], f.R[2] + dx * ex[2] + v * en[2]];
+    };
+    // Ebenen der beiden Stirnflächen (End-Rippen) und Stelle s*, an der die geglättete Fläche sie trifft
+    const span = b.mx[2] - b.mn[2];
+    const ends = [[b.mn[2], 1], [b.mx[2], -1]].map(([z, dir]) => { const f = Wp.frameAt(z); return { z, dir, O: f.O, t: V3.norm(V3.cross(f.ex, f.en)) }; });
+    const sStar = (dx, v, k, u, e) => {
+      const g = s => V3.dot(V3.sub(pt(dx, v, k, u, s), e.O), e.t), g0 = g(e.z);
+      if (Math.abs(g0) < 1e-7) return e.z;
+      let W = 4, lo = e.z - W, hi = e.z + W, gl = g(lo), gh = g(hi);
+      while (gl * gh > 0 && W < Hm) { W *= 2; lo = e.z - W; hi = e.z + W; gl = g(lo); gh = g(hi); }
+      if (gl * gh > 0) return e.z;
+      for (let it = 0; it < 40 && hi - lo > 1e-6; it++) { const m = (lo + hi) / 2, gm = g(m); if (gm * gl <= 0) { hi = m; } else { lo = m; gl = gm; } }
+      return (lo + hi) / 2;
+    };
+    const out = { lim: x => [-lim(lv[0], 'lo', x), lim(lv[0], 'hi', x)], over: 0 };
+    out.map = (x, y, z) => {
+      const v = y - yR, a = Math.abs(v), side = v >= 0 ? 'hi' : 'lo';
+      if (a <= lim(lv[0], side, x)) { const f = Wp.frameAt(z); return [f.O[0] + x * f.ex[0] + y * f.en[0], f.O[1] + x * f.ex[1] + y * f.en[1], f.O[2] + x * f.ex[2] + y * f.en[2]]; }
+      let k = lv.length - 1, u = 0;
+      for (let j = 0; j + 1 < lv.length; j++) { const l1 = lim(lv[j + 1], side, x); if (a <= l1) { const l0 = lim(lv[j], side, x); k = j; u = (a - l0) / (l1 - l0 || 1); break; } }
+      if (k === lv.length - 1 && a > lim(lv[k], side + 'H', x)) out.over++;   // selbst die stärkste Glättung reicht nicht
+      const dx = x - uc;
+      let s = z;
+      for (const e of ends) {
+        const w = (z - e.z) * e.dir;   // Abstand von der Stirnfläche nach innen
+        if (w > 0.45 * span) continue;
+        const sh = sStar(dx, v, k, u, e) - e.z;
+        if (!sh) continue;
+        const L = Math.min(0.45 * span, Math.max(30, 4 * Math.abs(sh)));
+        if (w < L) s += sh * (1 - w / L);
+      }
+      return pt(dx, v, k, u, s);
+    };
+    Wp._bm[key] = out;
+    return out;
+  }
+  // Abgerolltes Netz über bendMap zurückbiegen; meldet fold (Radius), wenn die Formfläche selbst (nicht nur
+  // Rückseite/Platte) im geglätteten Bereich liegt, also vom Urmodell abweicht, oder selbst die stärkste Glättung nicht reicht.
+  /* Vorschau (Hälften auseinanderziehen): STARRE Verschiebung des fertig gebogenen Netzes entlang der mittleren
+   * Trennflächen-Normale d. Ein vor dem Biegen aufgebrachter Versatz würde mitgebogen und – mit dem Faltschutz von
+   * bendMap – jede Hälfte anders verformen, die Hälften passten dann sichtbar nicht mehr aufeinander. Der Faktor k
+   * sorgt dafür, dass der Spalt senkrecht zur Trennfläche überall mindestens dem eingestellten Wert entspricht. */
+  /* Ebener Formhinterbau (Winglet-Form) als Auflagefläche für den 3D-Druck. Die Rückseite jeder Hälfte (im
+   * abgerollten Netz die Punkte mit y = Ober- bzw. Unterkante, side = +1 / −1) besteht dann aus bis zu drei ebenen
+   * Flächen: der geraden Rückseite des waagrechten Teils (Ebene L0 durch die Rückseite am Anschluss, Normale en0),
+   * der geraden Rückseite des Winglets (L1 durch die Rückseite an der Spitze, Normale en1) und dazwischen der
+   * Auflagefläche (Normale n). Außenseite der Biegung: Körper = Schnitt der drei Halbräume (die Auflagefläche liegt
+   * als Fase an der ausgerundeten Außenecke an). Innenseite: Körper = Vereinigung (die Auflagefläche füllt die
+   * Innenecke). Es wird nur Material ergänzt. Beide Hälften bekommen dieselbe Normale n -> parallele Flächen.
+   * n liegt in der Biegeebene zwischen en0 und en1:
+   *   'equal'  Winkelhalbierende -> beide Schenkel stehen im selben Winkel zum Druckbett
+   *   'ends'   senkrecht zur Sehne zwischen den Enden der Rückseite (innen reicht die Fläche dann von Ende zu Ende)
+   *   'angle'  eigener Winkel der Auflagefläche zum waagrechten Teil
+   * Gerechnet wird je Lage x im Schnitt (p, q) = (·en0, ·ep): Polygon aus Stirnebenen, L0, L1 und Auflagefläche
+   * (Halbebenen-Clipping), daraus der Linienzug S – K0 – K1 – T der Rückseite; die Koordinate längs der Biegeachse
+   * bleibt die des Punkts. Die beiden Knicke K0/K1 liegen für alle x auf denselben
+   * Ringen (ta, tb), damit die Flächen eben bleiben. Die Stirnflächen bleiben in ihren Rippenebenen.
+   * Rückgabe: { n, alpha, phi, concave, isBack(y), fit(x, z, P), done(), put(x, z, P), bedW } | null. */
+  function backPlane(Wp, b, side, bm) {
+    const B = Wp.back;
+    if (!B || !Wp.frameAt || B.mode === 'follow' || !side) return null;
+    const z0 = b.mn[2], z1 = b.mx[2]; if (!(z1 > z0)) return null;
+    const f0 = Wp.frameAt(z0), f1 = Wp.frameAt(z1), en0 = f0.en, en1 = f1.en;
+    const c = Math.max(-1, Math.min(1, V3.dot(en0, en1))), phi = Math.acos(c);
+    if (phi < 0.26) return null;   // kaum gebogen (< 15°): nichts zu tun
+    const ep = V3.norm(V3.sub(en1, V3.mul(en0, c))), ax = V3.norm(V3.cross(en0, ep)), t1 = V3.norm(V3.cross(f1.ex, f1.en));
+    const yB = side > 0 ? b.mx[1] : b.mn[1], xm = (b.mn[0] + b.mx[0]) / 2;
+    const to2 = P => [V3.dot(P, en0), V3.dot(P, ep)], d2 = (u, w) => u[0] * w[0] + u[1] * w[1];
+    const ends = new Map();
+    const endsAt = x => {
+      const k = x.toFixed(4); let E = ends.get(k);
+      if (!E) { const A = bm.map(x, yB, z0), Bp = bm.map(x, yB, z1); E = { A2: to2(A), B2: to2(Bp), rA: V3.dot(A, ax), rB: V3.dot(Bp, ax), ch: undefined }; ends.set(k, E); }
+      return E;
+    };
+    const Em = endsAt(xm), key = B.mode + '/' + B.ang;
+    if (!Wp._backN || Wp._backN.key !== key) {
+      let al = phi / 2, lim = 8 * Math.PI / 180;
+      if (B.mode === 'angle') al = B.ang * Math.PI / 180;
+      else if (B.mode === 'ends') { al = Math.atan2(-(Em.B2[0] - Em.A2[0]), Em.B2[1] - Em.A2[1]); if (al < 0) al += Math.PI; lim = Math.PI / 180; }
+      Wp._backN = { key, al: Math.max(lim, Math.min(phi - lim, al)) };
+    }
+    const al = Wp._backN.al, n2 = [Math.cos(al), Math.sin(al)], n = V3.norm(V3.add(V3.mul(en0, n2[0]), V3.mul(ep, n2[1])));
+    const e12 = [c, Math.sin(phi)], t12 = [V3.dot(t1, en0), V3.dot(t1, ep)];
+    const concave = side * (Em.B2[0] - Em.A2[0]) > 0;   // Rückseite an der Innenseite der Biegung
+    const isBack = y => Math.abs(y - yB) < 1e-6;
+    let d = null, ta = 1 / 3, tb = 2 / 3, za = null, zb = null, bedW = 0;
+    const ub = [-n2[1], n2[0]], u1 = [-e12[1], e12[0]];   // Richtung längs der Auflagefläche bzw. längs der Winglet-Rückseite
+    const zs = new Map();
+    // Polygon (Punkte mit Kennung der abgehenden Kante) gegen die Halbebene nrm·P <= off kappen
+    const clip = (poly, nrm, off, lab) => {
+      const out = [], m = poly.length;
+      for (let i = 0; i < m; i++) {
+        const cu = poly[i], nx = poly[(i + 1) % m], dc = d2(nrm, cu.p) - off, dn = d2(nrm, nx.p) - off, ci = dc <= 1e-9, ni = dn <= 1e-9;
+        const X = () => { const t = dc / (dc - dn); return [cu.p[0] + (nx.p[0] - cu.p[0]) * t, cu.p[1] + (nx.p[1] - cu.p[1]) * t]; };
+        if (ci) out.push({ p: cu.p, lab: cu.lab });
+        if (ci && !ni) out.push({ p: X(), lab });
+        else if (!ci && ni) out.push({ p: X(), lab: cu.lab });
+      }
+      return out;
+    };
+    const chain = x => {
+      const E = endsAt(x); if (E.ch !== undefined) return E.ch;
+      E.ch = null;
+      const A2 = E.A2, B2 = E.B2, G = 1e5, s = concave ? -side : side, dd = (d == null ? (concave ? -1e9 : 1e9) : d + B.add);
+      let P = [[-G, -G], [G, -G], [G, G], [-G, G]].map(q => ({ p: [A2[0] + q[0], A2[1] + q[1]], lab: 'box' }));
+      const sR = Math.sign(B2[1] - A2[1]) || 1; P = clip(P, [0, -sR], -sR * A2[1], 'root');
+      const sT = Math.sign(d2([A2[0] - B2[0], A2[1] - B2[1]], t12)) || 1; P = clip(P, [-sT * t12[0], -sT * t12[1]], -sT * d2(B2, t12), 'tip');
+      P = clip(P, [s, 0], s * A2[0], 'L0');
+      P = clip(P, [s * e12[0], s * e12[1]], s * d2(B2, e12), 'L1');
+      P = clip(P, [s * n2[0], s * n2[1]], (concave ? -1 : 1) * dd, 'bed');
+      // zusammenfallende Punkte entfernen
+      P = P.filter((q, i) => { const r = P[(i + 1) % P.length]; return Math.hypot(q.p[0] - r.p[0], q.p[1] - r.p[1]) > 1e-7; });
+      const m = P.length, bk = l => l === 'L0' || l === 'L1' || l === 'bed';
+      let st = -1; if (m >= 3) for (let i = 0; i < m; i++) if (bk(P[i].lab) && !bk(P[(i + m - 1) % m].lab)) { st = i; break; }
+      if (st < 0) {
+        // Innenseite, Auflagefläche liegt jenseits beider Schenkel-Rückseiten: sie reicht von Stirnebene zu Stirnebene
+        if (!concave || d == null) return null;
+        const o = side * dd, S = [(o - n2[1] * A2[1]) / n2[0], A2[1]], ot = d2(B2, t12), det = n2[0] * t12[1] - n2[1] * t12[0];
+        if (Math.abs(det) < 1e-9 || Math.abs(n2[0]) < 1e-9) return null;
+        const T = [(o * t12[1] - n2[1] * ot) / det, (n2[0] * ot - o * t12[0]) / det];
+        return (E.ch = { S, K0: S, K1: T, T, c0: 0, c1: 1, lb: Math.hypot(T[0] - S[0], T[1] - S[1]) });
+      }
+      let pts = [P[st].p], labs = [];
+      for (let k = 0; k < m && bk(P[(st + k) % m].lab); k++) { labs.push(P[(st + k) % m].lab); pts.push(P[(st + k + 1) % m].p); }
+      if (Math.abs(pts[0][1] - A2[1]) > Math.abs(pts[pts.length - 1][1] - A2[1])) { pts.reverse(); labs.reverse(); }
+      const S = pts[0], T = pts[pts.length - 1];
+      const K0 = labs[0] === 'L0' ? pts[1] : S, K1 = labs[labs.length - 1] === 'L1' ? pts[pts.length - 2] : T;
+      const l0 = Math.hypot(K0[0] - S[0], K0[1] - S[1]), lb = Math.hypot(K1[0] - K0[0], K1[1] - K0[1]), l1 = Math.hypot(T[0] - K1[0], T[1] - K1[1]), L = l0 + lb + l1 || 1;
+      return (E.ch = { S, K0, K1, T, c0: l0 / L, c1: (l0 + lb) / L, lb });
+    };
+    return {
+      n, alpha: al, phi, concave, isBack,
+      // 1. Durchgang: Lage der Auflagefläche (Stützebene der ausgerundeten Rückseite; innen nur der Teil, den die
+      // geraden Schenkel-Rückseiten nicht abdecken) und die Ring-Lagen
+      fit: (x, z, P) => {
+        const k = z.toFixed(4), r = zs.get(k); if (r) { if (x < r[1]) r[1] = x; if (x > r[2]) r[2] = x; } else zs.set(k, [z, x, x]);
+        const P2 = to2(P);
+        if (concave) { const E = endsAt(x); if (!(side * (P2[0] - E.A2[0]) > 1e-6 && side * d2([P2[0] - E.B2[0], P2[1] - E.B2[1]], e12) > 1e-6)) return; }
+        const q = side * d2(P2, n2); if (d == null || q > d) d = q;
+      },
+      // Knicke auf Ringe legen (aus dem Linienzug in Formmitte)
+      done: () => {
+        const w = (b.mx[0] - b.mn[0]) * 0.5, tt = [...zs.values()].filter(r => r[2] - r[1] >= w).map(r => (r[0] - z0) / (z1 - z0)).sort((u, v) => u - v);
+        const cm = chain(xm), N = tt.length;
+        if (!cm || N < 4) return;
+        // Ringe, deren (ausgerundete) Rückseite in Formmitte den Knicken K0 / K1 am nächsten liegt
+        const own = tt.map(t => to2(bm.map(xm, yB, z0 + t * (z1 - z0))));
+        const near = (K, lo, hi) => { let bi = lo, bd = Infinity; for (let i = lo; i <= hi; i++) { const q = Math.hypot(own[i][0] - K[0], own[i][1] - K[1]); if (q < bd) { bd = q; bi = i; } } return bi; };
+        const j0 = near(cm.K0, 1, N - 3), j1 = near(cm.K1, j0 + 1, N - 2);
+        ta = tt[j0]; tb = tt[j1]; za = z0 + ta * (z1 - z0); zb = z0 + tb * (z1 - z0); bedW = cm.lb;
+      },
+      get bedW() { return bedW; },
+      // 2. Durchgang: Punkt der Rückseite
+      put: (x, z, P) => {
+        // Lage längs der Biegeachse bleibt die des Punkts selbst (Pfeilung/Zuspitzung: die Seitenwände bleiben über dem Formenrand)
+        const E = endsAt(x), ch = chain(x), t = Math.max(0, Math.min(1, (z - z0) / (z1 - z0))), r = V3.dot(P, ax);
+        let q;
+        if (!ch || za == null) q = [E.A2[0] + (E.B2[0] - E.A2[0]) * t, E.A2[1] + (E.B2[1] - E.A2[1]) * t];
+        else {
+          /* Lage auf dem Linienzug aus der eigenen Lage des Punkts: auf den Schenkeln längs des Schenkels, dazwischen
+           * längs der Auflagefläche – jeweils zwischen den Knick-Ringen eingepasst. Punkte, die schon auf der geraden
+           * Schenkel-Rückseite liegen, bleiben damit (fast) an ihrem Platz, die Seitenwände bleiben über dem Formenrand. */
+          if (!E.Pa) { E.Pa = to2(bm.map(x, yB, za)); E.Pb = to2(bm.map(x, yB, zb)); }
+          const P2 = to2(P), L = (u, w, f) => [u[0] + (w[0] - u[0]) * f, u[1] + (w[1] - u[1]) * f];
+          const fr = (v0, v, v1, alt) => { const dn = v1 - v0; return Math.max(0, Math.min(1, Math.abs(dn) > 1e-6 ? (v - v0) / dn : alt)); };
+          q = t <= ta ? L(ch.S, ch.K0, fr(E.A2[1], P2[1], E.Pa[1], t / ta))
+            : t <= tb ? L(ch.K0, ch.K1, fr(d2(E.Pa, ub), d2(P2, ub), d2(E.Pb, ub), (t - ta) / (tb - ta)))
+              : L(ch.K1, ch.T, fr(d2(E.Pb, u1), d2(P2, u1), d2(E.B2, u1), (t - tb) / (1 - tb)));
+        }
+        return [en0[0] * q[0] + ep[0] * q[1] + ax[0] * r, en0[1] * q[0] + ep[1] * q[1] + ax[1] * r, en0[2] * q[0] + ep[2] * q[1] + ax[2] * r];
+      }
+    };
+  }
+  function bendMesh(mesh, Wp, side) {
     if (!Wp.frameAt) return mesh;
-    dy = dy || 0;
-    const b = meshBounds(mesh), inner = b.mx[1] - Wp.vRef, outer = Wp.vRef - b.mn[1];
-    const out = transformMesh(mesh, (x, y0, z) => { const f = Wp.frameAt(z), y = y0 + dy; return [f.O[0] + x * f.ex[0] + y * f.en[0], f.O[1] + x * f.ex[1] + y * f.en[1], f.O[2] + x * f.ex[2] + y * f.en[2]]; }, false);
+    const b = meshBounds(mesh), bm = bendMap(Wp, b), over0 = bm.over;
+    const out = transformMesh(mesh, (x, y, z) => bm.map(x, y, z), false);
     out.holes = mesh.holes; out.sicke = mesh.sicke;
-    // Nachtraeglich (ohne Neuaufbau) mit anderem Versatz biegen; Ergebnis je Wert gecacht.
-    if (!dy) out.rebend = d => { if (!d) return out; if (!out._rb || out._rb.d !== d) out._rb = { d, m: bendMesh(mesh, Wp, d) }; return out._rb.m; };
-    const fp = inner >= Wp.rPlus - 0.5, fm = outer >= Wp.rMinus - 0.5;
-    if (fp || fm) out.fold = Math.round(Math.min(fp ? Wp.rPlus : Infinity, fm ? Wp.rMinus : Infinity));
+    out.sRange = [b.mn[2], b.mx[2]]; out.xMid = (b.mn[0] + b.mx[0]) / 2;   // Lage längs der Winglet-Mittellinie (Segmentierung)
+    const bp = backPlane(Wp, b, side, bm);
+    if (bp) {
+      const r = mesh.v, v = out.v;
+      for (let i = 0; i < r.length; i += 3) if (bp.isBack(r[i + 1])) bp.fit(r[i], r[i + 2], [v[i], v[i + 1], v[i + 2]]);
+      bp.done();
+      for (let i = 0; i < r.length; i += 3) if (bp.isBack(r[i + 1])) { const q = bp.put(r[i], r[i + 2], [v[i], v[i + 1], v[i + 2]]); v[i] = q[0]; v[i + 1] = q[1]; v[i + 2] = q[2]; }
+      /* Fast zusammenfallende Punkte der Rückseite (Abstand < 2 µm, z. B. wo ein Schenkelstück des Linienzugs fast
+       * verschwindet) auf einen Punkt legen – sonst bleiben Splitter-Dreiecke, an denen die Segmentierung scheitert. */
+      {
+        const TOL = 2e-3, cell = new Map(), ck = (a, b2, c) => a + ',' + b2 + ',' + c;
+        for (let i = 0; i < r.length; i += 3) {
+          if (!bp.isBack(r[i + 1])) continue;
+          const gx = Math.floor(v[i] / TOL), gy = Math.floor(v[i + 1] / TOL), gz = Math.floor(v[i + 2] / TOL);
+          let hit = null;
+          for (let a = -1; a <= 1 && !hit; a++) for (let b2 = -1; b2 <= 1 && !hit; b2++) for (let c = -1; c <= 1 && !hit; c++) {
+            const L = cell.get(ck(gx + a, gy + b2, gz + c)); if (!L) continue;
+            for (const q of L) if (Math.abs(q[0] - v[i]) < TOL && Math.abs(q[1] - v[i + 1]) < TOL && Math.abs(q[2] - v[i + 2]) < TOL) { hit = q; break; }
+          }
+          if (hit) { v[i] = hit[0]; v[i + 1] = hit[1]; v[i + 2] = hit[2]; }
+          else { const k = ck(gx, gy, gz), L = cell.get(k); if (L) L.push([v[i], v[i + 1], v[i + 2]]); else cell.set(k, [[v[i], v[i + 1], v[i + 2]]]); }
+        }
+      }
+      // zusammengefallene Dreiecke (Rückseite ohne Auflagefläche o. Ä.) entfernen
+      const nv = [], nt = [], t = out.t || [];
+      for (let i = 0; i < v.length; i += 9) {
+        const ux = v[i + 3] - v[i], uy = v[i + 4] - v[i + 1], uz = v[i + 5] - v[i + 2], wx = v[i + 6] - v[i], wy = v[i + 7] - v[i + 1], wz = v[i + 8] - v[i + 2];
+        const cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;
+        if (cx * cx + cy * cy + cz * cz < 1e-18) continue;
+        for (let k = 0; k < 9; k++) nv.push(v[i + k]); nt.push(t[i / 9] | 0);
+      }
+      out.v = nv; out.t = nt;
+      out.back = { n: bp.n, alpha: bp.alpha, phi: bp.phi, concave: bp.concave, bedW: bp.bedW };
+    }
+    {
+      const ens = []; for (let i = 0; i <= 40; i++) ens.push(Wp.frameAt(b.mn[2] + (b.mx[2] - b.mn[2]) * i / 40).en);
+      const d = V3.norm(V3.add(ens[0], ens[ens.length - 1]));   // Winkelhalbierende zwischen Anfang und Ende der Biegung
+      const k = 1 / Math.max(0.35, Math.min(...ens.map(e => V3.dot(e, d))));
+      // Ergebnis je Versatz gecacht; d = 0 -> geschlossen
+      out.rebend = D => {
+        if (!D) return out;
+        if (!out._rb || out._rb.d !== D) { const T = V3.mul(d, D * k); out._rb = { d: D, m: Object.assign(transformMesh(out, (x, y, z) => [x + T[0], y + T[1], z + T[2]], false), { holes: out.holes, sicke: out.sicke, fold: out.fold, shift: T }) }; }
+        return out._rb.m;
+      };
+      let cav = false, side = 0;
+      const v = mesh.v, t = mesh.t || [];
+      for (let i = 0; i < t.length && !cav; i++) {
+        if (t[i] === 1) continue;
+        for (let c = 0; c < 3; c++) { const q = v[i * 9 + c * 3 + 1] - Wp.vRef, lm = bm.lim(v[i * 9 + c * 3]); if (q > lm[1] + 1e-6 || q < lm[0] - 1e-6) { cav = true; side = q > 0 ? 1 : -1; break; } }
+      }
+      if (cav || bm.over > over0) out.fold = Math.round(side < 0 ? Wp.rMinus : side > 0 ? Wp.rPlus : Math.min(Wp.rPlus, Wp.rMinus));
+    }
     return out;
   }
   /* Formenrand je Ring: Kasten (feste Wände xF0/xR0) oder im festen Abstand zum Grundriss: echter
@@ -1642,12 +1998,15 @@
   /* Ringfolge der Wurzelverlängerung bei unterschiedlichen Längen: von außen (dz = Überstand)
    * bis zur Wurzelrippe (dz = 0). Je Länge, die vor dem Formenende endet, zwei Ringe an derselben
    * Station (flach / offen) = senkrechte Stirnwand. deep(i) fragt, ob Ausnehmung i dort offen ist. */
-  function stkLevels(lens, ov) {
+  function stkLevels(lens, ov, through) {
     const L = lens.map(v => Math.min(v, ov)), uniq = [...new Set(L)].sort((a, b) => b - a), out = [];
     const mask = d => i => L[i] >= d - 1e-6;
-    // Am äußeren Ende der Form bleibt die Trennfläche geschlossen: Ausnehmungen, die bis dorthin
-    // durchlaufen, enden dort mit einer senkrechten Stirnwand (flacher Ring + offener Ring).
-    out.push({ dz: ov, deep: () => false });
+    /* Negativform (through = true): Taschen, die mindestens so lang wie der Überstand sind, laufen offen
+     * bis zum Ende der Form durch — der Deckel spart die Kerbe aus. Ein flacher Ring davor würde die Tasche
+     * dort mit einer Stirnwand verschließen (Ringband flach -> offen füllt die Kerbe).
+     * Sonst (Urmodell-Körper, Anschluss-Steckung vor dem auslaufenden Rand) bleibt der flache Ring: beim
+     * aufgesetzten Körper ist das Band seine Stirnfläche, und der Deckel bleibt ein einfaches Polygon. */
+    if (!through || !L.some(v => v >= ov - 1e-6)) out.push({ dz: ov, deep: () => false });
     if (L.some(v => v >= ov - 1e-6)) out.push({ dz: ov, deep: mask(ov) });
     for (const l of uniq) {
       if (l >= ov - 1e-6) continue;
@@ -2155,7 +2514,7 @@
     const first = rings[0], last = rings[rings.length - 1];
     if (opt.ovRoot > 0) {
       if (!stkRun) { const Q = collapsed(first.pts); out.push(ring(Q, first.z - opt.ovRoot, true, 1)); out.push(ring(Q, first.z, true, 1)); }
-      else for (const e of stkLevels(stk.lens, opt.ovRoot)) out.push(ring(collapsed(first.pts, e.deep), first.z - e.dz, true, 1));
+      else for (const e of stkLevels(stk.lens, opt.ovRoot, true)) out.push(ring(collapsed(first.pts, e.deep), first.z - e.dz, true, 1));
     }
     const nExt = out.length;   // Ringe der Wurzelverlängerung (Ringband der Formfläche beginnt am letzten davon)
     rings.forEach((r, k) => out.push(ring(r.pts, r.z, false, hkFac(k), blFac(k))));
@@ -2191,7 +2550,7 @@
       }
       hasTip = true;
     } else if (opt.ovTip > 0) {
-      if (stkERun) for (const e of stkLevels(stkE.lens, opt.ovTip).slice().reverse()) out.push(ring(collapsed(last.pts, e.deep, stkERun), last.z + e.dz, true, 0));
+      if (stkERun) for (const e of stkLevels(stkE.lens, opt.ovTip, true).slice().reverse()) out.push(ring(collapsed(last.pts, e.deep, stkERun), last.z + e.dz, true, 0));
       else { const Q = collapsed(last.pts), zEnd = last.z + opt.ovTip; out.push(ring(Q, last.z, true, 0)); out.push(ring(Q, zEnd, true, 0)); }
       hasTip = true;
     }
@@ -2718,7 +3077,7 @@
       mode: C('formSmooth'), ctrl: Math.max(4, Math.round(C('formCtrl'))), lambda: Math.max(0, +C('formLambda')),
       pts: Math.max(40, Math.round(C('formPts'))), ringMm: Math.max(0.5, +C('formRingMm')), loft: C('formLoft') === 'spline' ? 'spline' : 'linear', plan: C('formPlan') === 'trap' ? 'trap' : 'smooth', loftAng: Math.max(0.1, +C('formLoftAng') || 2), aufmass: +C('formAufmass') || 0, teThk: Math.max(0, +C('formTeThk') || 0), teEdge: ['blend', 'flush'].includes(C('formTeEdge')) ? C('formTeEdge') : 'out',
       tipMode: planOn && C('formTipMode') === 'round' ? 'flat' : C('formTipMode'), tipLen: Math.max(0, +C('formTipLen')), tipPLE: +C('formTipPLE') || 2, tipPTE: +C('formTipPTE') || 2,
-      tipRef: +C('formTipRef') || 0, tipRise: +C('formTipRise') || 0, tipTwist: +C('formTipTwist') || 0, tipThk: +C('formTipThk') || 100,
+      tipDih: Math.min(60, Math.max(-45, +C('formTipDih') || 0)), tipRef: +C('formTipRef') || 0, tipRise: +C('formTipRise') || 0, tipTwist: +C('formTipTwist') || 0, tipThk: +C('formTipThk') || 100,
       wl: { step: Math.max(0, +C('formWlStep') || 0), stepAt: Math.max(0, +C('formWlStepAt') || 0), flatWing: C('formWlFlatWing') !== false, teWing: C('formWlTeWing') !== false, teSweep: Math.min(60, Math.max(-30, +C('formWlTeSweep') || 0)), teSweepH: Math.min(60, Math.max(-30, +C('formWlTeSweepH') || 0)), flatLen: Math.max(0, +C('formWlFlatLen') || 0), flatSweep: Math.min(70, Math.max(-30, +C('formWlFlatSweep') || 0)), len: +C('formWlLen') || 0, R: Math.max(0, +C('formWlR')), cant: Math.min(85, Math.max(-30, +C('formWlCant') || 0)),
         cRoot: Math.max(5, +C('formWlCRoot') || 0), cTip: Math.max(2, +C('formWlCTip') || 0), sweep: Math.min(70, Math.max(-30, +C('formWlSweep') || 0)),
         toe: +C('formWlToe') || 0, twist: +C('formWlTwist') || 0, midPos: +C('formWlMidPos') || 50, tipLen: Math.max(0, +C('formWlTipLen')), tipP: +C('formWlTipP') || 2,
@@ -2729,6 +3088,7 @@
       mirror: !!C('formMirror'), up: C('formUp'), origin: C('formOrigin'),
       ovF: Math.max(0, +C('formOvF')), ovR: Math.max(0, +C('formOvR')), ovRoot: Math.max(0, +C('formOvRoot')), ovTip: Math.max(0, +C('formOvTip')),
       wall: Math.max(1, +C('formWall')), cavUp: !!C('formCavUp'), target: C('formTarget'), part: partMode(),
+      back: { mode: ['equal', 'ends', 'angle'].includes(C('formBackMode')) ? C('formBackMode') : 'follow', ang: +C('formBackAng') || 45, add: Math.max(0, +C('formBackAdd') || 0) },
       wallMode: C('formWallMode') === 'neg' ? 'neg' : 'custom', wallWing: C('formWallWing') || '', wallSeg: C('formWallSeg') == null ? -1 : Math.round(+C('formWallSeg')), wallRib: C('formWallRib') === 'root' ? 'root' : 'tip',
       plateT: Math.max(1, +C('formPlateT')), sicke: !!C('formSicke'), sickeDist: Math.max(0, +C('formSickeDist')),
       sickeW: Math.max(0, +C('formSickeW')), sickeD: Math.max(0, +C('formSickeD')), sickeRun: C('formSickeRun'),
@@ -2861,6 +3221,8 @@
     // Winglets nur beim Urmodell oder als eigenes Formteil (sonst hinterschnitten -> flach)
     if ((o.tipMode === 'winglet' || o.tipMode === 'wldraw') && o.target !== 'ur' && o.part !== 'tip') o = Object.assign({}, o, { tipMode: 'flat' });
     if (o.part === 'tip') o = Object.assign({}, o, { mirror: false });
+    // V-Form des Abschlusses: Urmodell (ganz/getrennt) und Einzelteile; Formhälften der ganzen Fläche ohne Knick
+    if (o.tipDih && o.target !== 'ur' && o.part === 'all') o = Object.assign({}, o, { tipDih: 0 });
     const W0 = wingRings(o);
     if (!W0) return null;
     // Schraublöcher (Senkungen) auf Ringebene: fürs Positiv hier, für die Formhälften erst NACH partingReparam
@@ -2884,8 +3246,10 @@
         const mesh = o.part === 'tip' ? P.tip : P.wing; if (mesh && o.part === 'tip') mesh.isTip = true;
         return mesh;
       };
-      if (o.target === 'neg') { m.top = bendMesh(buildMold(Wp, o, 'top'), Wp); m.bot = bendMesh(buildMold(Wp, o, 'bot'), Wp); m.ur = positive(); }
-      else if (o.target === 'split') { m.top = bendMesh(buildSplit(Wp, o, 'top'), Wp); m.bot = bendMesh(buildSplit(Wp, o, 'bot'), Wp); }
+      // Rückseite der Hälfte im abgerollten Netz: Negativform oben = Oberkante (+1), unten = Unterkante (−1); Trennplatte umgekehrt
+      Wp.back = o.back;
+      if (o.target === 'neg') { m.top = bendMesh(buildMold(Wp, o, 'top'), Wp, 1); m.bot = bendMesh(buildMold(Wp, o, 'bot'), Wp, -1); m.ur = positive(); }
+      else if (o.target === 'split') { m.top = bendMesh(buildSplit(Wp, o, 'top'), Wp, -1); m.bot = bendMesh(buildSplit(Wp, o, 'bot'), Wp, 1); }
       else m.ur = positive();
       if (o.pin.on && o.tipMode !== 'flat' && o.part === 'all') { const P = buildUrParts(W, oPos); if (P.tip) m.parts = P; }
       // Lage der Schraublöcher an die Netze (Vorschau: eigene Glättungsgruppe, siehe glMesh)
@@ -2990,9 +3354,21 @@
   // Formhälfte (Negativform / geteiltes Urmodell) als Ringstapel -> STEP.
   // Die Formquerschnitte (Kavität + Flansch + Wände + Rückseite) sind geschlossene, uniforme
   // Ringe (wie beim STL-Loft); Passlöcher werden dort separat gestanzt und sind hier NICHT enthalten.
-  function bendRings(rings, Wp) {   // Winglet-Form: abgerollte Ringe über frameAt(s) zurückbiegen (sonst unverändert)
+  function bendRings(rings, Wp, side) {   // Winglet-Form: abgerollte Ringe über frameAt(s) zurückbiegen (sonst unverändert)
     if (!Wp || !Wp.frameAt) return rings;
-    return rings.map(r => ({ z: r.z, pts: r.pts.map(p => { const f = Wp.frameAt(r.z); return { x: f.O[0] + p.x * f.ex[0] + p.y * f.en[0], y: f.O[1] + p.x * f.ex[1] + p.y * f.en[1], z: f.O[2] + p.x * f.ex[2] + p.y * f.en[2] }; }) }));
+    const b = { mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity] };
+    for (const r of rings) for (const p of r.pts) { const z = p.z == null ? r.z : p.z; b.mn[0] = Math.min(b.mn[0], p.x); b.mx[0] = Math.max(b.mx[0], p.x); b.mn[2] = Math.min(b.mn[2], z); b.mx[2] = Math.max(b.mx[2], z); }
+    for (const r of rings) for (const p of r.pts) { b.mn[1] = Math.min(b.mn[1], p.y); b.mx[1] = Math.max(b.mx[1], p.y); }
+    const bm = bendMap(Wp, b);   // gleiche Biegung mit Faltschutz wie das STL-Netz
+    const out = rings.map(r => ({ z: r.z, pts: r.pts.map(p => { const q = bm.map(p.x, p.y, p.z == null ? r.z : p.z); return { x: q[0], y: q[1], z: q[2] }; }) }));
+    const bp = backPlane(Wp, b, side, bm);   // ebener Hinterbau wie beim STL
+    if (bp) {
+      const each = fn => rings.forEach((r, j) => r.pts.forEach((p, i) => { if (bp.isBack(p.y)) fn(out[j].pts[i], p.x, p.z == null ? r.z : p.z); }));
+      each((q, x, z) => bp.fit(x, z, [q.x, q.y, q.z]));
+      bp.done();
+      each((q, x, z) => { const w = bp.put(x, z, [q.x, q.y, q.z]); q.x = w[0]; q.y = w[1]; q.z = w[2]; });
+    }
+    return out;
   }
   function moldStepText(half) {
     const o = model && model.opt, Wp = model && model.Wp;
@@ -3002,7 +3378,7 @@
     // Bei gebogenen Winglet-Formen (Ringe mit eigener z-Koordinate) lässt der Kern sie automatisch aus.
     const holes = (o.holes && o.holes.on) ? { list: holeSpots(rings0, o, Wp).map(h => ({ x: h.x, z: h.z })), r: Math.max(0.5, o.holes.d / 2) } : null;
     let rings = rings0.map(r => ({ z: r.z, pts: r.pts.map(p => ({ x: p.x, y: p.y, z: p.z })) }));
-    rings = bendRings(rings, Wp);
+    rings = bendRings(rings, Wp, (o.target === 'split') === (half === 'top') ? -1 : 1);
     rings = stepClean(rings);
     if (!rings || rings.length < 2) throw new Error(T('Kein Volumenkörper ableitbar (leeres oder entartetes Modell).'));
     const sp = o.target === 'split', suf = (sp ? '_urmodell' : '_form') + (half === 'top' ? '_oben' : '_unten');
@@ -3045,15 +3421,39 @@
     if (!q) return so.pin;
     if (q.on === false) return null;
     // Manuelle Lage für diesen Körper: feste Punkte statt automatischer Suche (Anzahl = Punktzahl)
-    const pts = body && Array.isArray(q.pts) ? q.pts.filter(p => p[2] === body).map(p => ({ x: +p[0] || 0, y: +p[1] || 0 })) : [];
+    const pts = body && Array.isArray(q.pts) && !segSpine() ? q.pts.filter(p => p[2] === body).map(p => ({ x: +p[0] || 0, y: +p[1] || 0 })) : [];
     if (pts.length) return Object.assign({}, so.pin, { n: pts.length, pts });
     const n = +q.n; return n >= 1 ? Object.assign({}, so.pin, { n: Math.min(20, Math.round(n)) }) : so.pin;
   }
   // Manuelle Passstift-Punkte je Trennstelle: alle Punkte (auch anderer Körper) für die Anzeige
   function segPinPts(i) { const q = ((C('formSegPinPer') || {})[i]) || {}; return Array.isArray(q.pts) ? q.pts : []; }
   // z-Bereich der Exportkörper (volle Auflösung, ohne Vorschau-Versatz).
+  /* Winglet-Form (gebogen): die Trennebenen stehen nicht senkrecht zur Spannweite, sondern folgen dem Winglet.
+   * Die Lagen aus segPlanes() sind dann Bogenlängen s längs der Mittellinie (abgerolltes z); segPlane3(s) liefert
+   * die Ebene dazu: Punkt auf der Trennfläche in Formmitte, Normale = Tangente der Mittellinie ('part': Ebene
+   * senkrecht zur Trennfläche) bzw. deren Anteil in der ebenen Auflagefläche ('back': senkrecht zum Formhinterbau;
+   * ohne ebenen Hinterbau wie 'part'). formSegDir 'z' = wie bei der Tragfläche (Ebenen z = konst). */
+  function segSpine() {
+    if (!model || !model.Wp || !model.Wp.frameAt || !model.opt || model.opt.part !== 'tip') return null;
+    const dir = C('formSegDir'); if (dir === 'z') return null;
+    let lo = Infinity, hi = -Infinity, xm = 0;
+    for (const k of ['top', 'bot']) { const m = model[k]; if (m && m.sRange) { lo = Math.min(lo, m.sRange[0]); hi = Math.max(hi, m.sRange[1]); xm = m.xMid; } }
+    return lo < hi ? { Wp: model.Wp, dir: dir === 'back' ? 'back' : 'part', R: [lo, hi], xm } : null;
+  }
+  function segPlane3(s, sp) {
+    sp = sp || segSpine(); if (!sp) return null;
+    const f = sp.Wp.frameAt(s), t = V3.norm(V3.cross(f.ex, f.en));
+    const O = V3.add(V3.add(f.O, V3.mul(f.ex, sp.xm)), V3.mul(f.en, sp.Wp.vRef));
+    let n = t;
+    if (sp.dir === 'back') {
+      const bk = (model.top && model.top.back) || (model.bot && model.bot.back);
+      if (bk) { const u = V3.sub(t, V3.mul(bk.n, V3.dot(t, bk.n))); if (V3.len(u) > 0.2) n = V3.norm(u); }
+    }
+    return { O, n };
+  }
   function segRange() {
     if (!model) return null;
+    const sp = segSpine(); if (sp) return sp.R;
     let lo = Infinity, hi = -Infinity;
     for (const k of ['ur', 'top', 'bot']) if (model[k]) { const b = meshBounds(model[k]); lo = Math.min(lo, b.mn[2]); hi = Math.max(hi, b.mx[2]); }
     return lo < hi ? [lo, hi] : null;
@@ -3093,13 +3493,44 @@
     const v = mesh.v, tg = mesh.t || [], lo = new Mesh(), hi = new Mesh(), segs = [];
     // Liegt die Ebene (fast) auf Netzpunkten (z. B. Ringlage einer Segmentgrenze), entstehen Splitter-
     // Dreiecke, die als entartet wegfallen -> Ebene um 0,1 mm versetzen (unbedeutend fürs Druckstück).
-    for (let k = 0; k < 20; k++) { let hit = false; for (let i = 2; i < v.length; i += 3) if (Math.abs(v[i] - zc) < 0.05) { hit = true; break; } if (!hit) break; zc += 0.1; }
+    // Gesucht wird die nächstgelegene Lage mit mindestens 0,05 mm Abstand zu allen Netzpunkten (innerhalb ±3 mm).
+    {
+      const M = 0.05, R = 3, near = [];
+      for (let i = 2; i < v.length; i += 3) { const d = v[i] - zc; if (d > -R && d < R) near.push(d); }
+      if (near.some(d => Math.abs(d) < M)) {
+        near.push(-R, R); near.sort((a, b) => a - b);
+        let best = null;
+        for (let i = 0; i + 1 < near.length; i++) {
+          const a = near[i] + M, b = near[i + 1] - M; if (b < a) continue;
+          const c = Math.max(a, Math.min(b, 0)); if (best == null || Math.abs(c) < Math.abs(best)) best = c;
+        }
+        if (best != null) zc += best;
+      }
+    }
+    /* Schnittpunkte, die enger als 0,5 µm beieinanderliegen (Ebene läuft durch einen Fächer sehr spitzer Dreiecke),
+     * auf einen gemeinsamen Punkt legen – in den Dreiecken beider Stücke und in der Schnittkontur gleichermaßen.
+     * Sonst verkettet chainSegs (Raster 0,1 µm) die Kontur falsch und der Deckel passt nicht an die Stücke. */
+    const WT = 5e-4, wcell = new Map();
+    const weld = q => {
+      if (q[2] !== zc) return q;   // nur Schnittpunkte (cutTri setzt die Koordinate exakt)
+      const gx = Math.floor(q[0] / WT), gy = Math.floor(q[1] / WT);
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const L = wcell.get((gx + a) + ',' + (gy + b)); if (!L) continue;
+        for (const r of L) if (Math.abs(r[0] - q[0]) < WT && Math.abs(r[1] - q[1]) < WT) return r;
+      }
+      const k = gx + ',' + gy, L = wcell.get(k); if (L) L.push(q); else wcell.set(k, [q]);
+      return q;
+    };
+    // Dreiecke mit drei verschiedenen Ecken bleiben erhalten, auch wenn sie (fast) flächenlos sind – ein weggelassenes
+    // Splitterdreieck hinterließe drei offene Kanten.
+    const far3 = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 1e-9;
+    const keep = (m, a, b, c, t) => { if (far3(a, b) && far3(b, c) && far3(c, a)) { m.v.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]); m.t.push(t | 0); } };
     for (let i = 0; i < v.length; i += 9) {
       const P = [[v[i], v[i + 1], v[i + 2]], [v[i + 3], v[i + 4], v[i + 5]], [v[i + 6], v[i + 7], v[i + 8]]], t = tg[i / 9] | 0;
       const a = cutTri(P, 2, zc, -1), b = cutTri(P, 2, zc, 1);
-      for (const q of a.tris) lo.tri(q[0], q[1], q[2], t);
-      for (const q of b.tris) hi.tri(q[0], q[1], q[2], t);
-      if (a.seg) segs.push(a.seg);
+      for (const q of a.tris) keep(lo, weld(q[0]), weld(q[1]), weld(q[2]), t);
+      for (const q of b.tris) keep(hi, weld(q[0]), weld(q[1]), weld(q[2]), t);
+      if (a.seg) { const s0 = weld(a.seg[0]), s1 = weld(a.seg[1]); if (s0 !== s1) segs.push([s0, s1]); }
     }
     // Schleifen -> Außenkonturen und Löcher (Verschachtelungstiefe gerade = außen)
     const loops = chainSegs(segs).map(L => L.map(q => ({ x: q[0], y: q[1] })));
@@ -3129,7 +3560,15 @@
       circles.forEach((C0, k) => pins.push({ pts: C0, c: pc[k] }));
     });
     // Deckel: CCW in x/y -> Normale +z = Außennormale des unteren Stücks; oberes Stück gespiegelt
-    const emit = (m, a, b, c, flip) => flip ? m.tri(a, c, b, 1) : m.tri(a, b, c, 1);
+    /* Deckel-Dreiecke mit drei verschiedenen Ecken werden auch dann geschrieben, wenn sie (fast) flächenlos sind:
+     * liegt die Spitze eines Fächers über einer Kette kollinearer Schnittpunkte selbst auf dieser Geraden, fielen
+     * sonst alle Fächerdreiecke weg und die Kante bliebe topologisch offen (T-Stöße auf einer Geraden). */
+    const far = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 1e-9;
+    const emit = (m, a, b, c, flip) => {
+      if (!(far(a, b) && far(b, c) && far(c, a))) return;
+      if (flip) m.v.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]); else m.v.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+      m.t.push(1);
+    };
     for (const t of capTris) {
       const a = [t[0].x, t[0].y, zc], b = [t[1].x, t[1].y, zc], c = [t[2].x, t[2].y, zc];
       emit(lo, a, b, c, false); emit(hi, a, b, c, true);
@@ -3176,9 +3615,37 @@
   }
   // Netz an allen Ebenen (aufsteigend) teilen -> Stücke von der Wurzel (kleines z) nach außen.
   // pin: Objekt (alle Trennstellen gleich) oder Funktion (i, body) -> Objekt | null je Trennstelle; body = Körperkennung für manuelle Lagen.
+  /* Netz an einer beliebigen Ebene { O, n } teilen: in ein Hilfssystem drehen (n -> +z), dort wie gewohnt bei
+   * z = konst teilen und zurückdrehen. Nur gedreht, nicht verschoben: die Koordinaten behalten ihre Größenordnung,
+   * damit die Toleranzen des Deckel-Ear-Clippings (Ketten kollinearer Punkte) wie bei den z-Ebenen greifen.
+   * Passstift-Kanten für die Vorschau werden als 3D-Punkte abgelegt. */
+  function splitMeshPlane(mesh, pl, pin) {
+    const w = pl.n, u = V3.norm(V3.cross(Math.abs(w[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0], w)), v = V3.cross(w, u);
+    const fwd = (x, y, z) => [x * u[0] + y * u[1] + z * u[2], x * v[0] + y * v[1] + z * v[2], x * w[0] + y * w[1] + z * w[2]];
+    const inv = (x, y, z) => [x * u[0] + y * v[0] + z * w[0], x * u[1] + y * v[1] + z * w[1], x * u[2] + y * v[2] + z * w[2]];
+    const m2 = transformMesh(mesh, fwd, false);
+    const r = splitMeshZ(m2, V3.dot(pl.O, w), pin), prev = mesh.pinEdges || [];
+    const back = m => {
+      const q = transformMesh(m, inv, false);
+      q.pinEdges = prev.concat((m.pinEdges || []).map(e => {
+        const P = z => e.pts.map(a => { const b = inv(a.x, a.y, z); return { x: b[0], y: b[1], z: b[2] }; });
+        const nn = e.n || [0, 0, e.dir];
+        return { pts: P(e.zc), pts2: P(e.zb), zc: 0, zb: 0, dir: e.dir, n: V3.mul(w, nn[2]) };
+      }));
+      return q;
+    };
+    return { lo: back(r.lo), hi: back(r.hi), pins: r.pins, skipped: r.skipped };
+  }
   function splitMeshAll(mesh, planes, pin, body) {
     const out = []; let rest = mesh; out.pins = 0; out.skipped = 0;
-    planes.forEach((z, i) => { const r = splitMeshZ(rest, z, typeof pin === 'function' ? pin(i, body) : pin); out.push(r.lo); rest = r.hi; out.pins += r.pins || 0; out.skipped += r.skipped || 0; });
+    const sp = segSpine(), sh = mesh.shift;   // Winglet-Form: schräge Ebenen; Vorschau-Versatz der Hälfte mitnehmen
+    planes.forEach((z, i) => {
+      const pn = typeof pin === 'function' ? pin(i, body) : pin;
+      let r;
+      if (sp) { const pl = segPlane3(z, sp); if (sh) pl.O = V3.add(pl.O, sh); r = splitMeshPlane(rest, pl, pn); }
+      else r = splitMeshZ(rest, z, pn);
+      out.push(r.lo); rest = r.hi; out.pins += r.pins || 0; out.skipped += r.skipped || 0;
+    });
     out.push(rest);
     if (mesh.screws) for (const q of out) q.screws = mesh.screws;   // Vorschau der Stücke: Glättungsgruppe der Schraublöcher
     return out;
@@ -3187,6 +3654,7 @@
   async function saveSTLMany(list) {
     if (demoBlocked()) return;
     if (!list.length) return;
+    if (App.stlPreview && !(await App.stlPreview(list))) return;   // 3D-Vorschau aller Stücke vor dem Ordner-Dialog
     if (App.FS_SUPPORTED && window.showDirectoryPicker) {
       const dh = App.dirHandles || {};
       let root;
@@ -3242,16 +3710,22 @@
     const used = new Uint8Array(segs.length), loops = [];
     for (let i = 0; i < segs.length; i++) {
       if (used[i]) continue; used[i] = 1;
-      const loop = [segs[i][0], segs[i][1]];
-      let guard = 0;
-      while (guard++ < segs.length + 2) {
-        const end = loop[loop.length - 1], cands = map.get(key(end)) || [];
-        let nxt = -1; for (const c of cands) if (!used[c]) { nxt = c; break; }
-        if (nxt < 0) break;
-        used[nxt] = 1;
-        const sg = segs[nxt], q = key(sg[0]) === key(end) ? sg[1] : sg[0];
-        if (key(q) === key(loop[0])) break;
-        loop.push(q);
+      let loop = [segs[i][0], segs[i][1]], closed = false;
+      // Vorwärts verketten; endet die Kette an einem offenen Netzrand (z. B. Flügelspitze, an der der Winglet als
+      // eigener Körper ansetzt), auch vom Anfang aus rückwärts weiterverketten – sonst zerfällt der Schnitt in
+      // Ober- und Unterseite und jedes Stück wird beim Zeichnen mit einer Geraden zur Wurzel geschlossen.
+      for (let pass = 0; pass < 2 && !closed; pass++) {
+        let guard = 0;
+        while (guard++ < segs.length + 2) {
+          const end = loop[loop.length - 1], cands = map.get(key(end)) || [];
+          let nxt = -1; for (const c of cands) if (!used[c]) { nxt = c; break; }
+          if (nxt < 0) break;
+          used[nxt] = 1;
+          const sg = segs[nxt], q = key(sg[0]) === key(end) ? sg[1] : sg[0];
+          if (key(q) === key(loop[0])) { closed = true; break; }
+          loop.push(q);
+        }
+        if (!closed) loop.reverse();
       }
       if (loop.length >= 3) loops.push(loop);
     }
@@ -3822,6 +4296,20 @@
       ctx.fillStyle = fg; ctx.globalAlpha = on ? 1 : 0.8; ctx.fillText(T(t), x + bw / 2, y + bh / 2 + 0.5); ctx.globalAlpha = 1;
       showBtns.push({ k, x, y, w: bw, h: bh });
       y += bh + 4;
+      // Abstand der Formhälften in der Vorschau: − / Wert (Klick = geschlossen <-> letzter Abstand) / +
+      if (halves && !hasWl && k === 'h:bot') {
+        const g = +C('formGap') || 0, sw = 22, mw = bw - 2 * sw - 4;
+        const box = (bx, w, txt, kk, on) => {
+          ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, y, w, bh, 4) : ctx.rect(bx, y, w, bh);
+          ctx.fillStyle = on ? 'rgba(70,130,220,.85)' : 'rgba(60,70,90,.55)'; ctx.fill(); ctx.strokeStyle = line; ctx.stroke();
+          ctx.fillStyle = fg; ctx.fillText(txt, bx + w / 2, y + bh / 2 + 0.5);
+          showBtns.push({ k: kk, x: bx, y, w, h: bh });
+        };
+        box(x, sw, '−', 'gap-');
+        box(x + sw + 2, mw, g ? T('Abstand') + ' ' + g + ' mm' : T('geschlossen'), 'gap0', !g);
+        box(x + bw - sw, sw, '+', 'gap+');
+        y += bh + 4;
+      }
     }
     ctx.restore();
   }
@@ -3835,6 +4323,13 @@
     const rs = document.createElement('button'); rs.textContent = '\u21ba'; rs.title = T('Standardfarbe'); rs.style.cssText = 'padding:0 8px;min-width:0';
     rs.onclick = () => { S(key, def); inp.value = def; draw(); };
     wrap.appendChild(inp); wrap.appendChild(rs); row.appendChild(wrap); body.appendChild(row);
+  }
+  // Vorschau-Abstand der Formhälften (Knöpfe unter „nur untere Form“): ±5 mm, Mitte = geschlossen <-> letzter Wert
+  function setGap(k) {
+    const g = +C('formGap') || 0;
+    if (k === 'gap0') { if (g) { S('formGapLast', g); S('formGap', 0); } else S('formGap', +C('formGapLast') || 30); }
+    else S('formGap', Math.max(0, Math.min(500, g + (k === 'gap+' ? 5 : -5))));
+    buildSidebar();
   }
   function showBtnHit(x, y) { const b = showBtns.find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h); return b ? b.k : null; }
   function gizmoHit(x, y) {
@@ -3892,7 +4387,8 @@
     // entlang z auseinanderziehen; Teilung je Einstellung nur einmal (Cache am Modell).
     const so = segOpts(), segP = so.on && !noSeg ? segPlanes(so) : [];
     if (segP.length) {
-      const key = JSON.stringify([segP, so.pin, so.pinPer, pv === model]);
+      const sp = segSpine();
+      const key = JSON.stringify([segP, so.pin, so.pinPer, pv === model, C('formSegDir'), !!sp]);
       if (!model.segCache || model.segCache.key !== key) model.segCache = { key, map: new Map() };
       const cache = model.segCache.map, n = segP.length + 1, out = [];
       model.segErr = null; model.segSkipped = 0;
@@ -3906,6 +4402,20 @@
         }
         model.segSkipped += parts.skipped || 0;
         if (parts.length === 1) out.push(s);
+        else if (sp) {
+          // schräge Trennebenen: Stücke längs der Ebenen-Normalen auseinanderziehen (Versatz ins Netz gerechnet, je Abstand gecacht)
+          if (!parts._sh || parts._sh.gap !== so.gap) {
+            const offs = segOffsets(segP, sp, so.gap);
+            parts._sh = { gap: so.gap, list: parts.map((pm, i) => {
+              const T3 = offs[i]; if (!so.gap) return pm;
+              const q = transformMesh(pm, (x, y, z) => [x + T3[0], y + T3[1], z + T3[2]], false);
+              const mv = a => a && a.map(c => ({ x: c.x + T3[0], y: c.y + T3[1], z: c.z + T3[2] }));
+              q.pinEdges = (pm.pinEdges || []).map(e => Object.assign({}, e, { pts: mv(e.pts), pts2: mv(e.pts2) })); q.screws = pm.screws;
+              return q;
+            }) };
+          }
+          parts._sh.list.forEach(pm => out.push(Object.assign({}, s, { mesh: pm, rings: null })));
+        }
         else parts.forEach((pm, i) => out.push(Object.assign({}, s, { mesh: pm, rings: null, dz: (s.dz || 0) + (i - (n - 1) / 2) * so.gap })));
       }
       src.length = 0; for (const q of out) src.push(q);
@@ -3914,6 +4424,20 @@
     for (const s of src) { const b = meshBoundsCached(s.mesh); for (let k = 0; k < 3; k++) { const off = k === 1 ? (s.dy || 0) : k === 2 ? (s.dz || 0) : 0; mn[k] = Math.min(mn[k], b.mn[k] + off); mx[k] = Math.max(mx[k], b.mx[k] + off); } }
     model.src = src; model.bounds = { mn, mx };
     return { src, mn, mx };
+  }
+  // Vorschau-Versatz der Stücke bei schrägen Trennebenen: je Trennstelle um gap längs ihrer Normalen weiter, um die Mitte zentriert
+  function segOffsets(segP, sp, gap) {
+    const offs = [[0, 0, 0]];
+    segP.forEach(z => offs.push(V3.add(offs[offs.length - 1], V3.mul(segPlane3(z, sp).n, gap))));
+    const c = V3.mul(offs.reduce((a, b) => V3.add(a, b), [0, 0, 0]), 1 / offs.length);
+    return offs.map(o => V3.sub(o, c));
+  }
+  // Trennebene { O, n } als gestricheltes Viereck
+  function drawPlane3(O, n, half, stroke, fill) {
+    const u = V3.norm(V3.cross(Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0], n)), v = V3.cross(n, u);
+    ctx.beginPath();
+    [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach((q, i) => { const P = V3.add(O, V3.add(V3.mul(u, q[0] * half), V3.mul(v, q[1] * half))), sp = scr(P[0], P[1], P[2]); i ? ctx.lineTo(sp.x, sp.y) : ctx.moveTo(sp.x, sp.y); });
+    ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = stroke; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
   }
   function draw3d() {
     const bg = col('--bg', '#0f1216'); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
@@ -3935,6 +4459,11 @@
     if (C('formPsShow')) drawParting();
     if (cut) drawCutPlane(cut, mn, mx);
     const so = segOpts(), segP = so.on ? segPlanes(so) : [];
+    const spS = segP.length ? segSpine() : null;
+    if (spS) {
+      const offs = segOffsets(segP, spS, so.gap);
+      segP.forEach((z, i) => { const pl = segPlane3(z, spS), o = V3.mul(V3.add(offs[i], offs[i + 1]), 0.5); drawPlane3(V3.add(pl.O, o), pl.n, radius * 0.45, 'rgba(90,200,255,.55)', 'rgba(90,200,255,.05)'); });
+    } else
     segP.forEach((z, i) => drawCutPlane({ k: 2, pos: z + (i + 1 - (segP.length + 1) / 2) * so.gap }, mn, mx, 'rgba(90,200,255,.55)', 'rgba(90,200,255,.05)'));
     const co = curvOpts(), nCurv = co.on ? drawCurv3d(co) : 0;
     drawAxes();
@@ -3981,8 +4510,10 @@
       stkInfo(o.part === 'tip' ? 'stk' : 'stkE', o.stkT && o.stkT.on && o.part !== 'all',
         'Ausnehmungen der Anschluss-Steckung: keine — nur mit Überstand an dieser Seite (und nicht bei gespiegeltem Modell).', 'Ausnehmungen der Anschluss-Steckung je Hälfte:');
     }
+    const bk = (model.top && model.top.back) || (model.bot && model.bot.back);
+    if (bk) { const dg = r => (r * 180 / Math.PI).toFixed(1).replace('.', ',') + '°'; txt += '<br>' + T('Ebene Auflagefläche: Winkel zum waagrechten Teil') + ' ' + dg(bk.alpha) + ', ' + T('zum Winglet') + ' ' + dg(bk.phi - bk.alpha) + ' · ' + T('Breite oben / unten') + ' ' + [model.top, model.bot].map(m => m && m.back ? m.back.bedW.toFixed(0) : '–').join(' / ') + ' mm'; }
     const fold = (model.top && model.top.fold) || (model.bot && model.bot.fold);
-    if (fold) txt += '<br><span style="color:#f88">' + T('Biegeradius zu klein (ca.') + ' ' + fold + ' mm): ' + T('Platte bzw. Formdicke ist an der Innenseite der Biegung dicker als der Radius – das Netz faltet sich dort. Übergangsradius vergrößern oder Plattendicke / Formdicke verringern.') + '</span>';
+    if (fold) txt += '<br><span style="color:#f88">' + T('Biegeradius zu klein (ca.') + ' ' + fold + ' mm): ' + T('Das Profil ist an der Innenseite der Biegung dicker als der Radius – die Formfläche wird dort geglättet und weicht vom Urmodell ab. Übergangsradius vergrößern.') + '</span>';
     if (o.pin && o.pin.on && ((model.parts && model.parts.pins) || model.pins)) {
       const pp = (model.parts && model.parts.pins) || model.pins;
       txt += '<br>' + T('Steckungsbohrungen je Teil:') + ' ' + pp.placed;
@@ -4025,6 +4556,7 @@
   // Passstift-Lage setzen: 2D-Schnitt an der Trennstelle i öffnen (Klick = Stift, Rechtsklick = entfernen)
   let segPinEditPrev = null;   // Schnittansicht-Zustand vor dem Setzen (wird bei „Fertig“ wiederhergestellt)
   function segPinEditStart(i) {
+    if (segSpine()) { if (App.toast) App.toast(T('Bei schrägen Trennebenen (Winglet-Form) werden die Passstifte automatisch gesetzt.')); return; }
     const pl = segPlanes(); if (i == null || i < 0 || i >= pl.length) { segPinEditStop(); return; }
     if (segPinEdit == null) segPinEditPrev = { on: !!C('formCutOn'), axis: C('formCutAxis'), pos: C('formCutPos') };
     segPinEdit = i; cutMeasure = [];
@@ -4429,7 +4961,7 @@
   function resize() { if (fit()) draw(); }
   function bindCanvas() {
     if (!canvas || bound) return; bound = true;
-    if (window.ViewCube) ViewCube.attach({ canvas: () => canvas, get: () => cam, set: (y, p) => { cam.yaw = y; cam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [-0.01, -0.01], active: () => C('formView') === '3d',
+    if (window.ViewCube) ViewCube.attach({ reset: () => resetCam(), canvas: () => canvas, get: () => cam, set: (y, p) => { cam.yaw = y; cam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [-0.01, -0.01], active: () => C('formView') === '3d',
       labels: { '+x': 'Endleiste', '-x': 'Nase', '+y': 'Oben', '-y': 'Unten', '+z': 'Außen', '-z': 'Wurzel' } });
     let downX = 0, downY = 0;
     const local = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -4442,7 +4974,7 @@
         if (now - midT < 450 && Math.hypot(q.x - midX, q.y - midY) <= 5) { midT = 0; if (setPivotAt(q.x, q.y)) draw(); e.preventDefault(); return; }
         midT = now; midX = q.x; midY = q.y;
       }
-      if (e.button === 0 && C('formView') === '3d') { const q = local(e), k = showBtnHit(q.x, q.y); if (k) { if (k === 'wire') S('formWire', !C('formWire')); else if (k === 'ps') S('formPsShow', !C('formPsShow')); else if (k.startsWith('h:')) S('formHalf', k.slice(2)); else S('formShow', k); draw(); e.preventDefault(); return; } }
+      if (e.button === 0 && C('formView') === '3d') { const q = local(e), k = showBtnHit(q.x, q.y); if (k) { if (k === 'wire') S('formWire', !C('formWire')); else if (k === 'ps') S('formPsShow', !C('formPsShow')); else if (k.startsWith('h:')) S('formHalf', k.slice(2)); else if (k.startsWith('gap')) setGap(k); else S('formShow', k); draw(); e.preventDefault(); return; } }
       dragging = true; dragMode = (e.shiftKey || e.button === 1 || C('formView') !== '3d') ? 'pan' : 'rot';
       if (e.button === 0 && !e.shiftKey && onGizmo(e)) dragMode = 'gizmo';
       measDown = dragMode === 'rot' && measActive();   // Messpunkt erst beim Loslassen ohne Ziehen
@@ -5451,7 +5983,19 @@
     selectRow(g.body, 'Bauteil', [['all', 'Tragfläche mit Randbogen / Winglet'], ['wing', 'nur Tragfläche (bis zur letzten Rippe)'], ['tip', 'nur Randbogen / Winglet (eigene Form)']], () => part, v => { S('formPart', v); rb(); },
       'Tragfläche mit Randbogen / Winglet: ein Teil wie bisher. Nur Tragfläche: bis zur letzten Rippe, dort eben (der Randbogen bzw. das Winglet wird separat gebaut). Nur Randbogen / Winglet: eigenes Formteil ab der letzten Rippe — als Urmodell, geteiltes Urmodell oder Negativform. Die Trennfläche liegt in der Sehnenfläche: in Verlängerung von Nase und Endleiste und durch die Mitte des Randbogens bzw. der Winglet-Spitze. Beim Winglet folgt sie der Biegung des Übergangs (Platte, Flansch und Rückseite werden mitgebogen, Passlöcher stehen senkrecht auf der Trennfläche); entformt wird schräg zwischen „nach oben“ und „nach außen“.');
     if (part === 'tip' && tipIsWl && C('formTarget') !== 'ur')
-      hint(g.body, 'Winglet-Form: Ober- und Unterhälfte teilen sich an der Sehnenfläche des Winglets (innen / außen). Der Übergangsradius muss größer sein als Plattendicke bzw. Formdicke an der Innenseite der Biegung, sonst faltet sich das Netz (Hinweis in der Infozeile).');
+      hint(g.body, 'Winglet-Form: Ober- und Unterhälfte teilen sich an der Sehnenfläche des Winglets (innen / außen). Ist die Form an der Innenseite der Biegung dicker als der Übergangsradius, wird ihre Rückseite dort ausgerundet; Kavität und Trennfläche bleiben exakt.');
+    if (part === 'tip' && tipIsWl && C('formTarget') !== 'ur') {
+      // Formhinterbau: ebene Auflagefläche für den 3D-Druck
+      const bm = C('formBackMode') || 'follow';
+      selectRow(g.body, 'Formhinterbau', [['follow', 'folgt der Biegung'], ['equal', 'ebene Auflagefläche – gleicher Winkel zu beiden Teilen'], ['ends', 'ebene Auflagefläche – durch die Enden (wenig Material)'], ['angle', 'ebene Auflagefläche – eigener Winkel']], () => bm, v => { S('formBackMode', v); rb(); },
+        'Rückseite der Winglet-Form. Folgt der Biegung: die Rückseite ist an der Biegung ausgerundet. Ebene Auflagefläche: die Rückseite besteht nur aus ebenen Flächen – den geraden Rückseiten des waagrechten Teils und des Winglets und dazwischen einer ebenen Auflagefläche, auf der die Form beim 3D-Druck auf dem Druckbett liegen kann. An der Außenseite der Biegung liegt sie als Fase an der Ecke, an der Innenseite füllt sie die Ecke. Beide Hälften bekommen parallele Auflageflächen (die geschlossene Form lässt sich so auch spannen). Gleicher Winkel: der waagrechte Teil und das Winglet stehen im selben Winkel zum Druckbett. Durch die Enden: die Fläche der inneren Hälfte reicht vom einen Ende der Rückseite zum anderen – die innere Hälfte liegt damit vollflächig auf; der Winkel ergibt sich aus den Längen. Eigener Winkel: frei wählbar. Die Formdicke über dem Profil bleibt erhalten. Breite der Auflagefläche und Winkel stehen in der Infozeile.');
+      if (bm === 'angle')
+        numRow(g.body, 'Winkel zum waagrechten Teil (°)', () => C('formBackAng'), v => { S('formBackAng', v); rr(); }, { step: 1, min: 8, max: 82, norender: true,
+          hint: 'Winkel zwischen der Auflagefläche (Druckbett) und dem waagrechten Teil der Form. Der Winkel zum Winglet ist der Rest bis zum Winkel zwischen beiden Teilen (siehe Infozeile). Wird auf mindestens 8° zu jedem Teil begrenzt.' });
+      if (bm !== 'follow')
+        numRow(g.body, 'Zugabe Auflagefläche (mm)', () => C('formBackAdd'), v => { S('formBackAdd', v); rr(); }, { step: 1, min: 0, norender: true,
+          hint: 'Versetzt die Auflagefläche parallel nach außen (mehr Material hinter der Form).' });
+    }
     numRow(g.body, 'Aufmaß (mm)', () => C('formAufmass'), v => { S('formAufmass', v); rr(); }, { step: 0.1, norender: true,
       hint: 'Parallelversatz der Außenkontur, positiv = größer (z. B. Lack-/Gelcoat-Aufbau beim Urmodell), negativ = kleiner.' });
     numRow(g.body, 'Endleistendicke (mm)', () => C('formTeThk'), v => { S('formTeThk', v); rr(); }, { step: 0.1, min: 0, norender: true,
@@ -5519,7 +6063,7 @@
             numRow(gp.body, 'b: Höhe in Dickenrichtung (mm)', () => C('formPinB'), v => { S('formPinB', v); rr(); }, { step: 0.5, min: 0.5, norender: true });
           } else numRow(gp.body, 'Durchmesser (mm)', () => C('formPinD'), v => { S('formPinD', v); rr(); }, { step: 0.5, min: 0.5, norender: true });
           numRow(gp.body, 'Tiefe in der Tragfläche (mm)', () => C('formPinDepth'), v => { S('formPinDepth', v); rr(); }, { step: 1, min: 0.5, norender: true,
-            hint: 'Bohrtiefe entlang der Bohrachse ab der Trennebene, getrennt für die beiden Teile (Stiftlänge = Summe beider Tiefen). Die Trennebene (Endrippe) steht in der Vorderansicht senkrecht auf der Nasenleiste des letzten Segments (V-Form); Randbogen bzw. Winglet setzen daran an, und die Bohrachse steht senkrecht auf dieser Ebene, also parallel zur Nasenleiste. Achtung bei kurzen Randbögen / engem Übergangsradius: das Loch darf nicht seitlich aus dem Teil austreten.' });
+            hint: 'Bohrtiefe entlang der Bohrachse ab der Trennebene, getrennt für die beiden Teile (Stiftlänge = Summe beider Tiefen). Die Trennebene (Endrippe) steht in der Vorderansicht senkrecht auf der Nasenleiste des letzten Segments (V-Form); Randbogen bzw. Winglet setzen daran an, und die Bohrachse steht senkrecht auf dieser Ebene, also parallel zur Nasenleiste. Mit „V-Form Randbogen / Winglet“ liegt die Trennebene auf der Winkelhalbierenden des Knicks: die Bohrung bleibt gerade und steht in beiden Teilen um den halben Knickwinkel schräg. Achtung bei kurzen Randbögen / engem Übergangsradius: das Loch darf nicht seitlich aus dem Teil austreten.' });
           numRow(gp.body, 'Tiefe im Randbogen / Winglet (mm)', () => C('formPinDepthTip') != null ? C('formPinDepthTip') : C('formPinDepth'), v => { S('formPinDepthTip', v); rr(); }, { step: 1, min: 0.5, norender: true });
           hint(gp.body, 'Lochmitten bezogen auf die Profilnase der letzten Rippe: x entlang der Sehne nach hinten (Endleiste), y nach oben (Oberseite), jeweils in mm. Löcher, die nicht mit 0,5 mm Rand in der Profilkontur liegen, werden ausgelassen (Hinweis in der Infozeile).');
           const pts = pinPts();
@@ -5566,6 +6110,9 @@
     else if (C('formTipMode') === 'winglet' || C('formTipMode') === 'wldraw') hint(t.body, 'Winglets gibt es bei Formhälften der ganzen Tragfläche nicht (hinterschnitten) — hier wird der flache Abschluss verwendet. Winglet-Formen: Bauteil „nur Randbogen / Winglet“ wählen (Ziel Urmodell geteilt oder Negativform).');
     selectRow(t.body, 'Form', tipOpts, () => (planTip && C('formTipMode') === 'round') ? 'flat' : wlOk ? C('formTipMode') : ((C('formTipMode') === 'winglet' || C('formTipMode') === 'wldraw') ? 'flat' : C('formTipMode')), v => { S('formTipMode', v); if (v !== 'wldraw' && C('formView') === 'wl') S('formView', '3d'); rb(); },
       'Verschließt das Außenende der Tragfläche. Randbogen: Nasen- und Endleistenlinie laufen als Superellipsen zum Bezugspunkt (Vorlagen nach echten Segelflugzeugen); flach: ebener Abschluss an der letzten Rippe; Winglet: Fläche biegt tangential in ein senkrecht/schräg stehendes Winglet mit eigenen Profilen.');
+    if (C('formTipMode') !== 'flat' && !(planTip && C('formTipMode') === 'round') && (wlOk || C('formTipMode') === 'round'))
+      numRow(t.body, 'V-Form Randbogen / Winglet (°)', () => C('formTipDih'), v => { S('formTipDih', v); rr(); }, { step: 0.5, min: -45, max: 60, norender: true,
+        hint: 'Zusätzlicher Knick an der letzten Rippe: der ganze Randbogen bzw. das ganze Winglet wird um die Sehnenachse durch die Nase der Endrippe gedreht (positiv = nach oben, zur V-Form der Tragfläche dazu). Die Trennebene zwischen Tragfläche und Abschluss halbiert den Knick — jedes Teil nimmt die Hälfte des Winkels auf. Die Steckungsbohrungen stehen senkrecht auf dieser Ebene und gehen gerade durch beide Teile (je um den halben Knickwinkel schräg zur Spannweite des Teils, dadurch Platz auf beiden Seiten). Wirkt im Urmodell (ganz und getrennt) und bei den Einzelteilen; Formhälften der ganzen Tragfläche bleiben ohne Knick.' });
     const lastChord = () => { const st = stationsAbs(); if (!st.length) return 100; const e = ribExtent(st[st.length - 1].pts); return e.c || 100; };
     if (C('formTipMode') === 'round' && !planTip) {
       selectRow(t.body, 'Vorlage', [['custom', '— eigene Werte —'], ['ellipse', 'Ellipse (klassisch, LS4 / ASW 19)'], ['sichel', 'Sichel (Discus / ASW 27 / Ventus)'], ['raked', 'gerade gepfeilt, Spitze an der Endleiste'], ['hoch', 'hochgezogen, dünner auslaufend (DG / LS)']],
@@ -5986,6 +6533,10 @@
       selectRow(sg.body, 'Aufteilung', [['len', 'feste Stücklänge (von der Wurzel)'], ['seg', 'Tragflächen-Segmente, je in n Stücke'], ['n', 'gesamt in n gleich lange Stücke'], ['max', 'gleich lang, höchstens max. Länge']],
         () => segOpts().mode, v => { S('formSegMode', v); rb(); },
         'Feste Stücklänge: ab dem Wurzelende immer die gleiche Länge, das letzte Stück ist der Rest. Tragflächen-Segmente: die Trennstellen liegen auf den Segmentgrenzen des Entwurfs (Randbogen und Überstände zählen zum ersten/letzten Segment), jedes Segment wird zusätzlich in n gleich lange Stücke geteilt. Gesamt in n Stücke: gleich lange Stücke über die ganze Länge. Max. Länge: so viele gleich lange Stücke, dass keines länger als der Wert ist.');
+      if (partMode() === 'tip' && (C('formTipMode') === 'winglet' || C('formTipMode') === 'wldraw') && C('formTarget') !== 'ur')
+        selectRow(sg.body, 'Trennebenen (Winglet-Form)', [['part', 'senkrecht zur Trennfläche'], ['back', 'senkrecht zum ebenen Formhinterbau'], ['z', 'senkrecht zur Spannweite (wie Tragfläche)']],
+          () => ['back', 'z'].includes(C('formSegDir')) ? C('formSegDir') : 'part', v => { S('formSegDir', v); rb(); },
+          'Richtung der Trennebenen bei der gebogenen Winglet-Form. Senkrecht zur Trennfläche: jede Ebene steht quer zum Winglet an ihrer Stelle; die Stücklängen zählen längs des Winglets (Bogenlänge). Senkrecht zum ebenen Formhinterbau: die Ebene steht zusätzlich rechtwinklig auf der Auflagefläche (nur mit Formhinterbau „ebene Auflagefläche“, sonst wie senkrecht zur Trennfläche). Senkrecht zur Spannweite: wie bei der Tragfläche (Ebenen z = konstant). Bei schrägen Ebenen werden Passstifte automatisch gesetzt.');
       const mode = segOpts().mode;
       if (mode === 'len') numRow(sg.body, 'Stücklänge (mm)', () => C('formSegLen'), v => { S('formSegLen', v); rb(); }, { step: 5, min: 5, norender: true, enter: true });
       else if (mode === 'seg') numRow(sg.body, 'Stücke je Segment', () => segOpts().per, v => { S('formSegPer', v); rb(); }, { int: true, min: 1, max: 50, norender: true, enter: true });
@@ -6094,5 +6645,5 @@
   Object.assign(App, { formSidebar });
   window.Formenbau = { show, refresh, resize, draw, build, exportUr, exportTop, exportBot, exportWingOnly, exportTipOnly, exportUrStep, exportMoldStep, formStepText, moldStepText, openCmp, closeCmp,
     _dbgModel: () => model,   // Test-Hook (STEP-Validierung gegen echte Ringe)
-    _test: { planOf, planRings, planCheck, fitBSpline, smoothRib, teThickRing, earClip, splitMeshZ, splitMeshAll, pinSpots, segPlanes, segOpts, segPinAt, segPinPts, segPinSetPts, segPinClick, segPinEditStart, segPinEditStop, segPinEdit: () => segPinEdit, segNoseAt, holeSpots, segLengths, capPins, mergeHoles, wingRings, buildUrParts, tipSpine, partW, bendMesh, buildWith, moldRings, splitRings, partingReparam, partingSheet, partingSection, holeSpots, loftHoles, zipper, buildMold, buildSplit, opts, cutTri, chainSegs, sectionLoops, stationsAbs, exportTransform, toBinarySTL, railCurve, wingletDrawRings, wlXf: () => wlXf, wlHit, wlSel: () => wlSel, urmodellRingStack, stepClean, meas: () => meas, measHit, measThick, measCalc, circle3, measClick, view: () => ({ W, H, cam, center, radius }) } };
+    _test: { bendMap, backPlane, segSpine, segPlane3, splitMeshPlane, planOf, planRings, planCheck, fitBSpline, smoothRib, teThickRing, earClip, splitMeshZ, splitMeshAll, pinSpots, segPlanes, segOpts, segPinAt, segPinPts, segPinSetPts, segPinClick, segPinEditStart, segPinEditStop, segPinEdit: () => segPinEdit, segNoseAt, holeSpots, segLengths, capPins, mergeHoles, wingRings, buildUrParts, tipSpine, partW, bendMesh, buildWith, moldRings, splitRings, partingReparam, partingSheet, partingSection, holeSpots, loftHoles, zipper, buildMold, buildSplit, opts, cutTri, chainSegs, sectionLoops, stationsAbs, exportTransform, toBinarySTL, railCurve, wingletDrawRings, wlXf: () => wlXf, wlHit, wlSel: () => wlSel, urmodellRingStack, stepClean, meas: () => meas, measHit, measThick, measCalc, circle3, measClick, view: () => ({ W, H, cam, center, radius }) } };
 })();

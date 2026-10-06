@@ -25,7 +25,7 @@
     'globalDih', 'align', 'hingeAlign', 'sweepRef', 'dihedralCut', 'profSegs', 'pc2Show', 'pc2ShowSec',
     // Kerndesign
     'leStyle', 'leAngle', 'leGap', 'eightW', 'eightH', 'eightCross', 'teStyle',
-    'extOverBlockLE', 'extOverBlockClearLE', 'extOverBlockTE', 'extOverBlockClearTE', 'kerfDatum', 'shellCut', 'shellTop', 'shellBot',
+    'extOverBlockLE', 'extOverBlockClearLE', 'extOverBlockTE', 'extOverBlockClearTE', 'kerfDatum', 'shellCut', 'shellTop', 'shellBot', 'shellPreF', 'shellPreR',
     'coreStegeOn',
     'flipY', 'stackCount', 'stackGap', 'stackOffset', 'stackBaseOn', 'stackBase', 'stackMirror',
     'sparCut', 'sparKerfMode', 'sparKerfBasis', 'sparCutMode', 'sparOnly',

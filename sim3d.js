@@ -37,7 +37,9 @@
 
   const ZOOM_MIN = 0.05, ZOOM_MAX = 400;
   // Ansicht zurücksetzen (Standard-Schrägansicht, Zoom/Verschiebung neutral).
-  function resetCam(camObj) { Object.assign(camObj, CAM0); }
+  // pivot: per Mausrad-Doppelklick gesetzter Drehpunkt (Weltpunkt) je Kamera;
+  // null = Szenenmitte (center) wie bisher.
+  function resetCam(camObj) { Object.assign(camObj, CAM0); camObj.pivot = null; }
 
   let canvas = null, ctx = null, W = 0, H = 0;
   let center = { x: 0, y: 0, z: 0 }, radius = 400;   // Szenen-Bounding-Sphere
@@ -56,7 +58,8 @@
   /* Welt -> Kamera: erst um die Hochachse (yaw), dann kippen (pitch).
      Rückgabe {x,y,d} mit d = Tiefe vor der Kamera. */
   function toCam(p) {
-    const dx = p.x - center.x, dy = p.y - center.y, dz = p.z - center.z;
+    const c0 = cam.pivot || center;   // Drehpunkt (Rad-Doppelklick) oder Szenenmitte
+    const dx = p.x - c0.x, dy = p.y - c0.y, dz = p.z - c0.z;
     const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
     const x1 = dx * cy + dz * sy, z1 = -dx * sy + dz * cy;
     const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
@@ -257,6 +260,7 @@
   function frameScene() {
     const fr = computeFrame(S.moves, S.scene);
     S.bx = fr.bx; S.floor = fr.floor; center = fr.center; radius = fr.radius;
+    mainCam.pivot = null;   // neu gerahmt -> wieder um die Szenenmitte drehen
   }
 
   /* Zeichenfunktionen lesen aus S (moves/scene/bx/floor) und den Modulglobalen
@@ -790,6 +794,11 @@
     if (S.show.dim && blk) drawDims(blk);
     hud(p, m, info);
     if (S.warn) drawWarn(S.warn);
+    // Markierung des per Rad-Doppelklick gesetzten Drehpunkts
+    if (cam.pivot && window.ViewCube && ViewCube.drawPivot) {
+      const q = scr(cam.pivot);
+      if (q.d >= NEAR) ViewCube.drawPivot(ctx, q.x, q.y);
+    }
   }
 
   // Haupt-Viewport (G-Code-Tab): Position aus der Wiedergabezeit S.t.
@@ -887,7 +896,7 @@
       // Klick auf eine Achse des Gizmos: Ansicht senkrecht auf diese Achse.
       if (e.button === 0 && !e.shiftKey) {
         const r = cv.getBoundingClientRect(), g = gizmoHit(camObj, e.clientX - r.left, e.clientY - r.top);
-        if (g) { Object.assign(camObj, g, { zoom: camObj.zoom, px: 0, py: 0 }); return; }
+        if (g) { Object.assign(camObj, g, { zoom: camObj.zoom, px: 0, py: 0, pivot: null }); return; }
       }
       drag = { x: e.clientX, y: e.clientY, yaw: camObj.yaw, pitch: camObj.pitch,
                px: camObj.px, py: camObj.py, pan: e.shiftKey || e.button === 1 };
@@ -914,20 +923,74 @@
       camObj.zoom = z1;
     }, { passive: false });
     cv.addEventListener('dblclick', () => { resetCam(camObj); });
+    // Mausrad-Doppelklick: Punkt unter dem Cursor wird neuer Drehpunkt. Nur wenn
+    // ein Punkt getroffen wurde, wird der zweite mousedown verschluckt — sonst
+    // startet das Rad wie bisher das Verschieben.
+    if (window.ViewCube && ViewCube.midDbl) ViewCube.midDbl(cv, (x, y) => setPivotAt(cv, camObj, x, y));
     cv.style.cursor = 'grab';
+  }
+
+  /* Drehpunkt per Rad-Doppelklick setzen. Kandidaten: Turmbahnen (beide
+     Ebenen), Schnittkonturen an Wurzel/Rand (cutZ), Blockecken, aktueller Draht.
+     Die Projektion ist orthografisch: Bildpunkt = Mitte + (px,py) + s·R·(P − c).
+     Mit c := P bleibt P genau stehen, wenn (px,py) um s·R·(P − c_alt) wächst. */
+  function setPivotAt(cv, camObj, x, y) {
+    const isMon = cv === monCanvas && camObj === monCam;
+    const sv = { canvas, cam, W, H };
+    let hit = null;
+    try {
+      canvas = cv; cam = camObj;
+      const r = cv.getBoundingClientRect(); W = Math.max(1, r.width); H = Math.max(1, r.height);
+      const run = () => {
+        if (!S.ready || !S.scene) return;
+        const mw = S.scene.machineWidth;
+        const each = cb => {
+          for (const m of S.moves) {
+            cb(m.from.lx, m.from.ly, 0); cb(m.to.lx, m.to.ly, 0);
+            cb(m.from.rx, m.from.ry, mw); cb(m.to.rx, m.to.ry, mw);
+          }
+          for (const b of (S.scene.blocks || [])) {
+            const cz0 = b.cutZ0 != null ? b.cutZ0 : (b.z0 != null ? b.z0 : 0);
+            const cz1 = b.cutZ1 != null ? b.cutZ1 : (b.z1 != null ? b.z1 : mw);
+            for (const tz of [cz0 / mw, cz1 / mw]) for (const m of S.moves) {
+              if (m.seg !== b.seg || m.rapid) continue;
+              const q = wirePt(m.to, tz); cb(q.x, q.y, q.z);
+            }
+            if (b.rot && b.rot.corners && b.rot.corners.length === 8) b.rot.corners.forEach(v => cb(v.x, v.y, v.z));
+            else {
+              const x0t = b.x0t != null ? b.x0t : b.x0, x1t = b.x1t != null ? b.x1t : b.x1;
+              const y0t = b.y0t != null ? b.y0t : b.y0, y1t = b.y1t != null ? b.y1t : b.y1;
+              for (const [z, xa, xb, ya, yb] of [[b.z0, b.x0, b.x1, b.y0, b.y1], [b.z1, x0t, x1t, y0t, y1t]])
+                for (const yy of [ya, yb]) for (const xx of [xa, xb]) cb(xx, yy, z);
+            }
+          }
+        };
+        const proj = (wx, wy, wz) => { const q = scr({ x: wx, y: wy, z: wz }); return q.d < NEAR ? null : q; };
+        const best = ViewCube.pickNear(x, y, each, proj, 14);
+        if (!best) return;
+        const P = { x: best[0], y: best[1], z: best[2] };
+        const c0 = camObj.pivot || center;
+        const rv = rotDir([P.x - c0.x, P.y - c0.y, P.z - c0.z]);
+        const s = 0.42 * Math.min(W, H) / radius * camObj.zoom;
+        camObj.px += s * rv[0]; camObj.py -= s * rv[1];
+        camObj.pivot = P; hit = P;
+      };
+      if (isMon) withDataset(MON, run); else run();
+    } finally { canvas = sv.canvas; cam = sv.cam; W = sv.W; H = sv.H; }
+    return !!hit;
   }
 
   // ---------- Öffentliche API -------------------------------------------
   function init(opts) {
     canvas = document.getElementById(opts.canvasId || 'cSim');
     cam = mainCam; fit(); setupInput(canvas, mainCam);
-    if (window.ViewCube) ViewCube.attach({ canvas: () => canvas && canvas.id === (opts.canvasId || 'cSim') ? canvas : document.getElementById(opts.canvasId || 'cSim'), get: () => mainCam, set: (y, p) => { mainCam.yaw = y; mainCam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [0.008, 0.006] });
+    if (window.ViewCube) ViewCube.attach({ reset: () => { resetCam(mainCam); frameScene(); }, canvas: () => canvas && canvas.id === (opts.canvasId || 'cSim') ? canvas : document.getElementById(opts.canvasId || 'cSim'), get: () => mainCam, set: (y, p) => { mainCam.yaw = y; mainCam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [0.008, 0.006] });
 
     $('#simPlay').onclick = () => setPlaying(!S.playing);
     $('#simStop').onclick = () => { setPlaying(false); S.t = 0; syncBar(); };
-    $('#simTop').onclick = () => { Object.assign(mainCam, CAM_TOP); frameScene(); };
-    $('#simSide').onclick = () => { Object.assign(mainCam, CAM_SIDE); frameScene(); };
-    $('#simFront').onclick = () => { Object.assign(mainCam, CAM_FRONT); frameScene(); };
+    $('#simTop').onclick = () => { Object.assign(mainCam, CAM_TOP, { pivot: null }); frameScene(); };
+    $('#simSide').onclick = () => { Object.assign(mainCam, CAM_SIDE, { pivot: null }); frameScene(); };
+    $('#simFront').onclick = () => { Object.assign(mainCam, CAM_FRONT, { pivot: null }); frameScene(); };
     $('#simView0').onclick = () => { resetCam(mainCam); frameScene(); };
     $('#simSpeed').onchange = e => S.speed = parseFloat(e.target.value);
     $('#simSeek').oninput = e => {
@@ -959,7 +1022,7 @@
     // Kamera nur beim allerersten Laden auf die Standardansicht setzen. Danach
     // bleibt die gewählte Ansicht (Draufsicht, frei gedreht, …) erhalten, auch
     // beim Neuaufbau durch Umschalten zwischen linker/rechter Tragfläche.
-    if (!S.loaded) { Object.assign(mainCam, CAM0); S.loaded = true; }
+    if (!S.loaded) { Object.assign(mainCam, CAM0, { pivot: null }); S.loaded = true; }
     $('#simInfo').textContent = S.ready
       ? `${S.moves.length}${T(' Bewegungen · Laufzeit ')}${(S.total / 60).toFixed(1)} min`
       : T('kein Programm');
@@ -983,7 +1046,7 @@
     S.warn = computeWarn(S.moves, scene);
     S.t = 0; setPlaying(false);
     frameScene();
-    if (!S.loaded) { Object.assign(mainCam, CAM0); S.loaded = true; }
+    if (!S.loaded) { Object.assign(mainCam, CAM0, { pivot: null }); S.loaded = true; }
     $('#simInfo').textContent = S.ready
       ? `${S.moves.length}${T(' Bewegungen · Laufzeit ')}${(S.total / 60).toFixed(1)} min`
       : T('kein Programm');
@@ -998,9 +1061,9 @@
     monCanvas = cv;
     monCam = Object.assign({}, CAM0);
     setupInput(monCanvas, monCam);
-    if (window.ViewCube && !cv._vc) { cv._vc = true; ViewCube.attach({ canvas: () => monCanvas, get: () => monCam, set: (y, p) => { monCam.yaw = y; monCam.pitch = p; }, redraw: () => drawMonitor(), rot: ViewCube.ROT_STD, k: [0.008, 0.006] }); }
+    if (window.ViewCube && !cv._vc) { cv._vc = true; ViewCube.attach({ reset: () => resetCam(monCam), canvas: () => monCanvas, get: () => monCam, set: (y, p) => { monCam.yaw = y; monCam.pitch = p; }, redraw: () => drawMonitor(), rot: ViewCube.ROT_STD, k: [0.008, 0.006] }); }
     monMounted = true;
-    const bind = (id, C) => { const b = document.getElementById(id); if (b) b.onclick = () => Object.assign(monCam, C); };
+    const bind = (id, C) => { const b = document.getElementById(id); if (b) b.onclick = () => Object.assign(monCam, C, { pivot: null }); };
     bind('simMTop', CAM_TOP); bind('simMSide', CAM_SIDE); bind('simMFront', CAM_FRONT); bind('simMView0', CAM0);
   }
 
@@ -1017,7 +1080,7 @@
     const fr = computeFrame(MON.moves, MON.scene);
     MON.bx = fr.bx; MON.floor = fr.floor; MON.center = fr.center; MON.radius = fr.radius;
     MON.t = 0; MON.playing = false; MON.pos = null;
-    Object.assign(monCam, CAM0);
+    Object.assign(monCam, CAM0, { pivot: null });
     return MON.ready;
   }
   /* Vorschau-Simulation im Monitor starten/pausieren. -> aktueller Spielzustand.

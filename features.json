@@ -96,8 +96,8 @@
     },
     {
       "id": "ausschnitt",
-      "name": "Tragflächenausschnitt (Profil aus einem Block schneiden)",
-      "description": "Reiter „Tragflächenausschnitt“: Wurzelprofil einer Tragfläche oder eigenes Profil (.dat/Profildatenbank) als Ausschnitt (z. B. Flächenaufnahme im Rumpfblock) oder als Profilstück aus einem Block schneiden; Profiltiefe/Maßstab, Einstellwinkel, Spiel, Abbrand, Blockmaße und Lage; Anfahrt von oben/unten/vorne/hinten, Startpunkt per Klick frei wählbar, Schnittrichtung wählbar. G-Code-Text kommt aus der Funktion „G-Code-Erzeugung“ (ausschnitt_gcode.js); ohne sie zeigt der G-Code-Reiter die Bahnvorschau.",
+      "name": "Ausschnitte (Tragflächenprofil oder Kabinenhaube aus einem Block schneiden)",
+      "description": "Reiter „Ausschnitte“: Wurzelprofil einer Tragfläche oder eigenes Profil (.dat/Profildatenbank) als Ausschnitt (z. B. Flächenaufnahme im Rumpfblock) oder als Profilstück aus einem Block schneiden; Profiltiefe/Maßstab, Einstellwinkel, Spiel, Abbrand, Blockmaße und Lage; Anfahrt von oben/unten/vorne/hinten, Startpunkt per Klick frei wählbar, Schnittrichtung wählbar. G-Code-Text kommt aus der Funktion „G-Code-Erzeugung“ (ausschnitt_gcode.js); ohne sie zeigt der G-Code-Reiter die Bahnvorschau.",
       "files": [
         "ausschnitt.js"
       ],
@@ -217,7 +217,8 @@
       "name": "Profildatenbank (alle geladenen Profile, Vergleich, Gruppen)",
       "description": "Reiter „Profildatenbank“: jedes im Programm geladene Profil wird automatisch gesammelt (maschinenweit in hotwing-profile.json, nicht im Projekt); Profile vergleichen (übereinander, Kennwerte-Tabelle), bearbeiten (Dicke/Wölbung/Endleiste/Punktzahl, Name, Notiz), frei gruppieren; die Gruppen erscheinen als Aufklappmenü bei der Profilwahl im Tragflächendesigner und in der Auslegung. Ohne diese Funktion läuft alles wie bisher.",
       "files": [
-        "foildb.js"
+        "foildb.js",
+        "kfm.js"
       ],
       "tabs": [
         "foildb"

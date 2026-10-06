@@ -1,0 +1,59 @@
+AI Foam Cut - Electron-Ausgabe "Win7-32"
+Systemanforderungen
+========================================
+
+Die Ausgabe "Win7-32" ist eine eigenstaendige 32-Bit-Version auf Basis von
+Electron 22 (Chromium 108). Sie bringt alle Laufzeitbibliotheken selbst mit.
+Eine Installation ist nicht noetig.
+
+
+BETRIEBSSYSTEM
+- Windows 7 mit Service Pack 1, Windows 8, 8.1, 10 oder 11
+- Windows 7 ohne Service Pack 1 wird nicht unterstuetzt
+- Laeuft auf 32-Bit- und 64-Bit-Windows
+
+
+PROZESSOR
+- x86-Prozessor mit SSE3 (praktisch alle Rechner ab etwa 2006)
+- Aeltere Pentium-4- oder Athlon-XP-Rechner ohne SSE3 starten das Programm nicht
+
+
+ARBEITSSPEICHER
+- Minimum: 2 GB
+- Empfohlen: 4 GB
+- Als 32-Bit-Programm nutzt AI Foam Cut hoechstens etwa 2 bis 4 GB.
+  Sehr grosse STL-Dateien oder fein aufgeloeste Formen koennen daran scheitern.
+
+
+FESTPLATTE
+- Programmdatei: ca. 57 MB
+- Bei jedem Start entpackt sich das Programm in den Temp-Ordner und belegt
+  dort ca. 200 bis 250 MB. Auf alten Festplatten dauert der Start einige Sekunden.
+- Einstellungen werden neben der exe gespeichert. Der Ordner muss also
+  beschreibbar sein (z. B. nicht direkt unter "C:\Programme").
+
+
+GRAFIK
+- Fuer die 3D-Ansichten (Formenbau, 3D-Modell, Simulation) wird WebGL2
+  benoetigt. Dafuer braucht es eine Grafikkarte mit DirectX-11-faehigem,
+  moeglichst aktuellem Treiber.
+- Ohne passenden Treiber berechnet das Programm die 3D-Ansichten auf dem
+  Prozessor. Das funktioniert, ist auf alten Rechnern aber sehr langsam.
+- 2D-Reiter und Maschinensteuerung sind davon nicht betroffen.
+
+
+MASCHINE (Schneiden / Fraese)
+- Fuer den Controller wird der passende USB-Seriell-Treiber benoetigt
+  (z. B. CH340 oder FTDI). Windows 10/11 bringt ihn meist mit,
+  unter Windows 7 muss er in der Regel von Hand installiert werden.
+
+
+HINWEIS ZUR SICHERHEIT
+- Electron 22 erhaelt seit 2023 keine Sicherheitsupdates mehr.
+  Das Programm arbeitet lokal und offline; fuer neuere Windows-Versionen
+  bitte die normale 64-Bit-Ausgabe verwenden.
+
+
+Stand: 2026-10-04. Die Angaben sind aus den Anforderungen von Electron 22 /
+Chromium 108 abgeleitet. Auf einem echten Windows-7-Rechner ist diese
+Ausgabe noch nicht getestet.

@@ -173,7 +173,11 @@
       top:    { l: at(yTopR, yTopT, 0), r: at(yTopR, yTopT, mw) },
       bottom: { l: at(yBotR, yBotT, 0), r: at(yBotR, yBotT, mw) },
       front:  { l: px(frontR, frontT, 0), r: px(frontR, frontT, mw) },
-      rear:   { l: px(rearR, rearT, 0), r: px(rearR, rearT, mw) }
+      rear:   { l: px(rearR, rearT, 0), r: px(rearR, rearT, mw) },
+      // Luft-Abstände für „Blockschnitt vor Profilschnitt": vor der Blockvorderkante
+      // eintauchen (preF) bzw. hinter dem hinteren Blockende wenden (preR).
+      preF: Math.max(0, state.cfg.shellPreF != null ? +state.cfg.shellPreF : 5),
+      preR: Math.max(0, state.cfg.shellPreR != null ? +state.cfg.shellPreR : 5)
     };
   }
   /* Szene für die 3D-Simulation: Turmabstand, Achsnamen und je Segment der

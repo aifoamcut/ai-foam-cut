@@ -249,7 +249,7 @@
       // NACH dem Kernschnitt), trapezkompensiert. Der Draht läuft von vorne betrachtet
       // als leichtes Trapez (Keil = k_t − k_r je Rippe), um den höheren Abbrand an der
       // Außenrippe UND den zulasten der Schale gehenden Kern-Abbrand auszugleichen.
-      shellCut: false, shellTop: 10, shellBot: 10,
+      shellCut: false, shellTop: 10, shellBot: 10, shellPreF: 5, shellPreR: 5,
       // Kerndesign: Kern in Stege zerlegen (kernteile.js, Aufteilung wie im Negativdesign
       // = negStegeList/negStegeGap). Es werden immer nur die Stege geschnitten.
       coreStegeOn: false,
@@ -343,7 +343,7 @@
     // Guillotine: EIN gerader Schnitt — Höhe, X-Abstand zum Nullpunkt (Block unten)
     // und Winkel (0° = senkrecht; positiv kippt die Oberkante nach +X/hinten).
     // upMode = 'rapid' (Eilgang, Draht autom. AUS) | 'cut' (Vorschub, Draht autom. EIN) beim Rauffahren.
-    guillotine: { height: 60, xDist: 0, angle: 0, feed: 300, upMode: 'rapid', overY: 0 },  // overY = Überfahrt unter Y0 (mm, als negativer Y-Wert gespeichert; sicher durchschneiden)
+    guillotine: { height: 60, xDist: 0, angle: 0, feed: 300, upMode: 'cut', overY: 0, pauseAfter: false, retMode: 'safe', retH: 10 },  // pauseAfter = Pause nach Schnitt+Verweilen; retMode safe|path = Rückfahrt über Sicherheitshöhe retH (mm, in der Fuge hoch, dann waagrecht auf X0) oder über den Schneideweg; overY = Überfahrt unter Y0 (mm, als negativer Y-Wert gespeichert; sicher durchschneiden)
     // Block horizontal: waagrechte Schnitte über die Blocklänge. mode='height'
     // trennt nur oben (auf Zielhöhe yTop), mode='topbottom' trennt oben+unten
     // (fertige Scheibe zwischen yBot und yTop). dist/length = X-Ausdehnung.
@@ -573,7 +573,7 @@
   // im Browser-Speicher -> gilt projektunabhängig. alpha = Deckkraft des Bands.
   const KTRUE_KEY = 'hotwing.kerfTrue';
   const KTRUE_VIEWS = [['core', 'Kerndesign'], ['neg', 'Negativdesign'], ['dxf', 'DXF-Formen'],
-    ['model', '3D-Modell'], ['schrift', 'Schriften'], ['ausschnitt', 'Tragflächenausschnitt']];
+    ['model', '3D-Modell'], ['schrift', 'Schriften'], ['ausschnitt', 'Ausschnitte']];
   const KTRUE_DEF = { on: false, alpha: 0.35 };
   const KTRUE = {};
   KTRUE_VIEWS.forEach(([v]) => KTRUE[v] = Object.assign({}, KTRUE_DEF));

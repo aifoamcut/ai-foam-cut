@@ -9,7 +9,8 @@
   const App = (window.App = window.App || {});
   const T = s => (window.I18N ? window.I18N.t(s) : s);
   const AP = { top: 'von oben', bottom: 'von unten', front: 'von vorne (Nasenseite)', rear: 'von hinten (Endleistenseite)' };
-  function note(m) {
+  function note(m, canopy) {
+    if (canopy && m.k === 'cut') return T('Haubenlinie (Schnittvorschub)');
     switch (m.k) {
       case 'start': return T('Start am Nullpunkt (0,0)');
       case 'air': return T('in Luft (außerhalb des Blocks)');
@@ -25,11 +26,21 @@
     const c = App.state.cfg, P = c.precision != null ? c.precision : 3, f = v => (+v).toFixed(P);
     const ax = [c.axX || 'X', c.axY || 'Y', c.axU || 'Z', c.axV || 'A'], m = mm.meta, out = [];
     const em = s => out.push(window.I18N && window.I18N.tc ? window.I18N.tc(s) : s);
+    const canopy = m.kind === 'canopy';
+    if (canopy) {
+      const q = m.kh;
+      em('; AI Foam Cut · ' + T('Kabinenhaubenausschnitt'));
+      if (q.free) em('; ' + T('Freier Linienzug') + ' · ' + q.n + ' ' + T('Punkte') + ' · ' + T('Länge') + ' ' + Math.abs(q.x1 - q.x0).toFixed(1) + ' mm · ' + T('Tiefe') + ' ' + q.depth.toFixed(1) + ' mm');
+      else em('; ' + T('Untere Linie') + ' ' + q.len.toFixed(1) + ' mm / ' + q.slope.toFixed(1) + '° · ' + T('vorne') + ' ' + q.angF.toFixed(1) + '° · ' + T('hinten') + ' ' + q.angR.toFixed(1) + '° · '
+        + T('Radien') + ' ' + q.radF.toFixed(1) + ' / ' + q.radR.toFixed(1) + ' mm');
+    } else {
     em('; AI Foam Cut · ' + T('Tragflächenausschnitt') + ' · ' + String(m.name).slice(0, 60));
     em('; ' + T('Profiltiefe ') + m.chord.toFixed(1) + ' mm · ' + T('Einstellwinkel ') + m.angle.toFixed(1) + '° · '
       + T(m.keep === 'block' ? 'Ausschnitt (Block bleibt)' : 'Profilstück bleibt') + (m.clear > 0 ? ' · ' + T('Spiel ') + m.clear.toFixed(2) + ' mm' : ''));
+    }
     em('; ' + T('Block ') + m.block.w.toFixed(1) + ' x ' + m.block.h.toFixed(1) + ' x ' + m.block.d.toFixed(1) + ' mm · ' + T('Lage X/Y ') + (+m.block.x).toFixed(1) + ' / ' + (+m.block.y).toFixed(1) + ' mm');
-    em('; ' + T('Anfahrt ') + T(AP[m.approach] || m.approach) + ' · ' + T(m.dirCW ? 'im Uhrzeigersinn' : 'gegen den Uhrzeigersinn') + ' · '
+    if (canopy) em('; ' + T(m.fwd ? 'Schnitt von vorne nach hinten' : 'Schnitt von hinten nach vorne') + ' · ' + T({ canopy: 'Haube maßhaltig', fus: 'Rumpf maßhaltig', mid: 'Draht auf der Linie' }[m.keep]));
+    else em('; ' + T('Anfahrt ') + T(AP[m.approach] || m.approach) + ' · ' + T(m.dirCW ? 'im Uhrzeigersinn' : 'gegen den Uhrzeigersinn') + ' · '
       + T(m.startPicked ? 'Startpunkt gewählt' : 'Startpunkt automatisch'));
     em('; ' + T('Abbrand ') + m.kerf.toFixed(2) + ' mm · ' + T('Schnittlänge ') + (m.cutLen / 1000).toFixed(2) + ' m');
     em('; ' + T('Nullpunkt: links unten vor dem Block (Blocklage X/Y), beide Portale fahren dieselbe Bahn'));
@@ -44,7 +55,7 @@
     let lastK = '';
     mm.moves.forEach((mv, i) => {
       const x = f(mv.X), y = f(mv.Y);
-      const cm = mv.k !== lastK ? note(mv) : '';
+      const cm = mv.k !== lastK ? note(mv, canopy) : '';
       lastK = mv.k;
       em((i === 0 ? 'G0 ' : 'G1 ') + ax[0] + x + ' ' + ax[1] + y + ' ' + ax[2] + x + ' ' + ax[3] + y + (i === 0 ? '' : ' F' + Math.round(mv.F)) + (cm ? ' ; ' + cm : ''));
     });

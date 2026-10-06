@@ -554,6 +554,7 @@
     let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
     stlView.tris.forEach(t => t.forEach(p => { for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p[k]); mx[k] = Math.max(mx[k], p[k]); } }));
     stlView.center = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+    stlView.mc = stlView.center.slice(); stlView.pivot = null;   // Modellmitte / eigener Drehpunkt
     stlView.size = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
     stlView.rx = -1.05; stlView.ry = 0.6; stlView.zoom = 1; stlView.ox = 0; stlView.oy = 0;
     document.getElementById('ribStlModal').classList.add('open');
@@ -570,6 +571,7 @@
     let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
     stlView.tris.forEach(t => t.forEach(p => { for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p[k]); mx[k] = Math.max(mx[k], p[k]); } }));
     stlView.center = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+    stlView.mc = stlView.center.slice(); stlView.pivot = null;   // Modellmitte / eigener Drehpunkt
     stlView.size = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
     stlView.rx = -1.05; stlView.ry = 0.6; stlView.zoom = 1; stlView.ox = 0; stlView.oy = 0;
     document.getElementById('ribStlModal').classList.add('open');
@@ -599,7 +601,7 @@
       const nl = Math.hypot(nx, ny, nz) || 1;
       const lit = Math.max(0.12, Math.abs((nx * L[0] + ny * L[1] + nz * L[2]) / nl));
       const depth = (A[2] + B[2] + C[2]) / 3;
-      return { A, B, C, lit, depth };
+      return { A, B, C, t, lit, depth };
     });
     faces.sort((a, b) => a.depth - b.depth);   // Painter (hinten zuerst)
     const X = p => w / 2 + stlView.ox + p[0] * scale;
@@ -611,11 +613,42 @@
       ctx.fill();
       ctx.strokeStyle = 'rgba(20,28,38,.55)'; ctx.lineWidth = 0.4; ctx.stroke();
     });
+    // Für die Drehpunkt-Wahl merken (Bildschirm = Ursprung + rot(p) · scale).
+    stlView.last = { faces, scale, w, h, rot };
+    if (stlView.pivot && window.ViewCube && ViewCube.drawPivot) { const q = rot(stlView.pivot); ViewCube.drawPivot(ctx, X(q), Y(q)); }
     const info = document.getElementById('ribStlInfo');
-    if (info) info.textContent = stlView.tris.length + T(' Dreiecke · Ziehen = drehen · Shift+Ziehen = schieben · Rad = Zoom');
+    if (info) info.textContent = stlView.tris.length + T(' Dreiecke · Ziehen = drehen · Shift+Ziehen = schieben · Rad = Zoom') + T(' · Rad-Doppelklick = Drehpunkt');
+  }
+  // Weltpunkt unter (x, y) (Canvas-CSS-px): vorderstes gezeichnetes Dreieck (orthografisch →
+  // Bildschirm-Baryzentrik = Welt-Baryzentrik), sonst nächster Eckpunkt in 14 px Umkreis.
+  function stlPick(x, y) {
+    const L = stlView.last; if (!L) return null;
+    const sx = p => L.w / 2 + stlView.ox + p[0] * L.scale, sy = p => L.h / 2 + stlView.oy - p[1] * L.scale;
+    for (let i = L.faces.length - 1; i >= 0; i--) {          // hinten zuerst sortiert → von vorne suchen
+      const f = L.faces[i];
+      const ax = sx(f.A), ay = sy(f.A), bx = sx(f.B), by = sy(f.B), cx = sx(f.C), cy = sy(f.C);
+      const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(den) < 1e-9) continue;
+      const u = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / den, v = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / den, wv = 1 - u - v;
+      if (u < -1e-6 || v < -1e-6 || wv < -1e-6) continue;
+      const t = f.t;
+      return [0, 1, 2].map(k => u * t[0][k] + v * t[1][k] + wv * t[2][k]);
+    }
+    if (!(window.ViewCube && ViewCube.pickNear)) return null;
+    return ViewCube.pickNear(x, y, cb => L.faces.forEach(f => f.t.forEach(p => cb(p[0], p[1], p[2]))),
+      (a, b, c) => { const q = L.rot([a, b, c]); return { x: sx(q), y: sy(q), d: -q[2] }; });
+  }
+  // Drehpunkt setzen: Rotationszentrum = Punkt, Verschiebung so, dass er am Bildschirm stehen bleibt.
+  function stlSetPivot(x, y) {
+    const L = stlView.last, pt = stlPick(x, y); if (!L || !pt) return false;
+    const q = L.rot(pt);                       // relativ zum bisherigen Zentrum
+    stlView.ox += q[0] * L.scale; stlView.oy -= q[1] * L.scale;
+    stlView.pivot = pt; stlView.center = pt.slice();
+    renderStlPreview();
+    return true;
   }
   function setupStlPreviewNav() {
     const cv = document.getElementById('cRibStl'); if (!cv || cv._navSet) return; cv._navSet = true;
+    if (window.ViewCube && ViewCube.midDbl) ViewCube.midDbl(cv, (x, y) => stlSetPivot(x, y));
     cv.addEventListener('mousedown', e => { stlView.drag = { x: e.clientX, y: e.clientY, rx: stlView.rx, ry: stlView.ry, ox: stlView.ox, oy: stlView.oy, shift: e.shiftKey }; });
     window.addEventListener('mousemove', e => {
       if (!stlView.drag) return; const dx = e.clientX - stlView.drag.x, dy = e.clientY - stlView.drag.y;
@@ -625,7 +658,12 @@
     });
     window.addEventListener('mouseup', () => { stlView.drag = null; });
     cv.addEventListener('wheel', e => { e.preventDefault(); stlView.zoom *= Math.exp(-e.deltaY * 0.0015); renderStlPreview(); }, { passive: false });
-    cv.addEventListener('dblclick', () => { stlView.rx = -1.05; stlView.ry = 0.6; stlView.zoom = 1; stlView.ox = 0; stlView.oy = 0; renderStlPreview(); });
+    const resetStl = () => {
+      stlView.rx = -1.05; stlView.ry = 0.6; stlView.zoom = 1; stlView.ox = 0; stlView.oy = 0;
+      stlView.pivot = null; if (stlView.mc) stlView.center = stlView.mc.slice();
+    };
+    cv.addEventListener('dblclick', () => { resetStl(); renderStlPreview(); });
+    if (window.ViewCube && ViewCube.home) ViewCube.home({ canvas: () => cv, reset: resetStl, redraw: () => renderStlPreview() });
   }
 
   function buildRibSidebar(side) {

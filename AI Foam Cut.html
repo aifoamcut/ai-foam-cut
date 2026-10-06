@@ -635,7 +635,6 @@
         <button data-view="wing">Tragflächendesigner</button>
         <button data-view="neg">Negativschalendesign</button>
         <button data-view="core">Kerndesign</button>
-        <button data-view="ausschnitt">Tragflächenausschnitt</button>
         <button data-view="foildb">Profildatenbank</button>
       </div>
     </div>
@@ -645,6 +644,7 @@
         <button data-view="dxf">DXF-Formen</button>
         <button data-view="model">3D-Modell</button>
         <button data-view="schrift">Schriften</button>
+        <button data-view="ausschnitt">Ausschnitte</button>
       </div>
     </div>
     <div class="tab-more" data-group="Spezial Module">
@@ -934,11 +934,12 @@
 
       <div class="view" id="ausschnittView">
         <div class="wing-pane" style="position:absolute;inset:0;border:0">
-          <span class="pane-label">Tragflächenausschnitt — Profil, Block, Anfahrt und Schnittbahn (Ansicht von vorne)</span>
+          <span class="pane-label">Ausschnitte — Kontur, Block, Anfahrt und Schnittbahn (Ansicht von vorne)</span>
           <div class="simlegend" id="ausInfo" style="left:10px;right:auto;top:34px;max-width:460px;z-index:3">Kein Profil.</div>
           <canvas id="cAusschnitt" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
           <div class="simbar" style="position:absolute;left:0;right:0;bottom:0;z-index:4">
             <button id="ausFit" title="Ansicht einpassen (auch Doppelklick in die Ansicht)">⬚ Einpassen</button>
+            <label class="ck" title="Block (Umriss, Maße, Anfahrfläche) ein- oder ausblenden"><input type="checkbox" id="ausShowBlock" checked> Block</label>
             <label class="ck"><input type="checkbox" id="ausShowFill" checked> Füllung</label>
             <label class="ck"><input type="checkbox" id="ausShowCut" checked> Schnittbahn</label>
             <label class="ck"><input type="checkbox" id="ausShowArrows" checked> Richtungspfeile</label> <label class="ck" title="Maße Nullpunkt → Block → Nase und Höhen einblenden"><input type="checkbox" id="ausShowDims" checked> Maße</label>
@@ -1561,63 +1562,65 @@
   </div>
   <div class="body"><canvas id="cSeg3d"></canvas></div>
 </div>
-<script src="i18n.js?v=20260930we"></script>
-<script src="safety.js?v=20260924hf"></script>
-<script src="airfoil.js?v=20260913x"></script>
-<script src="materials.js?v=20260913x"></script>
-<script src="blockprep.js?v=20260913x"></script>
-<script src="wing.js?v=20260928rb"></script>
-<script src="flz.js?v=20260919wi"></script>
-<script src="xflr5.js?v=20260926xf"></script>
-<script src="pc2.js?v=20260928pw"></script>
-<script src="dxf.js?v=20260913x"></script>
-<script src="hotwire.js?v=20260918cf"></script>
-<script src="hotwire_gcode.js?v=20260930b"></script>
-<script src="sweeprot.js?v=20260913x"></script>
-<script src="earcut.js?v=20260921cu"></script>
-<script src="grbl.js?v=20260928nh"></script>
-<script src="viewcube.js?v=20260922lg"></script>
-<script src="sim3d.js?v=20260928nk"></script>
-<script src="simmodel.js?v=20260921b"></script>
-<script src="model3d.js?v=20260921vd"></script>
-<script src="model3d_gcode.js?v=20260919en"></script>
-<script src="core.js?v=20260930wa"></script>
-<script src="cad.js?v=20260921sq"></script>
-<script src="gcode.js?v=20260930wa"></script>
-<script src="spars.js?v=20260923np"></script>
-<script src="ribs.js?v=20260921cv"></script>
-<script src="dxfshapes.js?v=20260930b"></script>
-<script src="wingimport.js?v=20260928pw"></script>
-<script src="filesys.js?v=20260930wa"></script>
-<script src="wingexport.js?v=20260920pc2"></script>
-<script src="gmfc.js?v=20260918a"></script>
-<script src="render.js?v=20260930wa"></script>
-<script src="measure2d.js?v=20260918mt"></script>
-<script src="sidebar.js?v=20260930wa"></script>
-<script src="pathpreview.js?v=20260930wa"></script>
-<script src="gcodegen.js?v=20260930wa"></script>
-<script src="cutpanel.js?v=20260930wa"></script>
-<script src="stege.js?v=20260919k5"></script>
-<script src="kernteile.js?v=20260919k3"></script>
-<script src="pc2wing.js?v=20260928rb"></script>
-<script src="stepexport.js?v=20260917p"></script>
-<script src="formenbau.js?v=20260928bu"></script>
-<script src="rumpf.js?v=20260930dm"></script>
-<script src="fraese.js?v=20260924hf"></script>
-<script src="schrift_fonts.js?v=20260918sc"></script>
-<script src="schrift.js?v=20260919en"></script>
-<script src="ausschnitt.js?v=20260930wf"></script>
-<script src="schrift_gcode.js?v=20260918sd"></script>
-<script src="ausschnitt_gcode.js?v=20260930wa"></script>
-<script src="foildb.js?v=20260930dm"></script>
-<script src="compute.js?v=20260930wa"></script>
-<script src="wings.js?v=20260930rp"></script>
-<script src="overview_bg.js?v=20260914j"></script>
-<script src="overview.js?v=20260927pw"></script>
-<script src="ptedit.js?v=20260919en"></script>
-<script src="profedit.js?v=20260913x"></script>
-<script src="tabmenu.js?v=20260918b"></script>
-<script src="app.js?v=20260930wa"></script>
+<script src="i18n.js?v=20261006schale7"></script>
+<script src="safety.js?v=20261004gerade2"></script>
+<script src="airfoil.js?v=20261004gerade2"></script>
+<script src="materials.js?v=20261004gerade2"></script>
+<script src="blockprep.js?v=20261004gerade2"></script>
+<script src="wing.js?v=20261004gerade2"></script>
+<script src="flz.js?v=20261004gerade2"></script>
+<script src="xflr5.js?v=20261004gerade2"></script>
+<script src="pc2.js?v=20261004gerade2"></script>
+<script src="dxf.js?v=20261004gerade2"></script>
+<script src="hotwire.js?v=20261004gerade2"></script>
+<script src="hotwire_gcode.js?v=20261006schale7"></script>
+<script src="sweeprot.js?v=20261004gerade2"></script>
+<script src="earcut.js?v=20261004gerade2"></script>
+<script src="grbl.js?v=20261004gerade2"></script>
+<script src="viewcube.js?v=20261005home"></script>
+<script src="sim3d.js?v=20261005home"></script>
+<script src="simmodel.js?v=20261004gerade2"></script>
+<script src="model3d.js?v=20261005stlprev"></script>
+<script src="model3d_gcode.js?v=20261006schale7"></script>
+<script src="core.js?v=20261006schale7"></script>
+<script src="cad.js?v=20261004gerade2"></script>
+<script src="gcode.js?v=20261006schale7"></script>
+<script src="spars.js?v=20261004gerade2"></script>
+<script src="ribs.js?v=20261005home"></script>
+<script src="dxfshapes.js?v=20261004gerade2"></script>
+<script src="wingimport.js?v=20261004gerade2"></script>
+<script src="filesys.js?v=20261004gerade2"></script>
+<script src="stlpreview.js?v=20261005stlprev2"></script>
+<script src="wingexport.js?v=20261004gerade2"></script>
+<script src="gmfc.js?v=20261004gerade2"></script>
+<script src="render.js?v=20261005home"></script>
+<script src="measure2d.js?v=20261004gerade2"></script>
+<script src="sidebar.js?v=20261006schale7"></script>
+<script src="pathpreview.js?v=20261006schale7"></script>
+<script src="gcodegen.js?v=20261005guill3"></script>
+<script src="cutpanel.js?v=20261005home"></script>
+<script src="stege.js?v=20261004gerade2"></script>
+<script src="kernteile.js?v=20261004gerade2"></script>
+<script src="pc2wing.js?v=20261004gerade2"></script>
+<script src="stepexport.js?v=20261004gerade2"></script>
+<script src="formenbau.js?v=20261005stlprev"></script>
+<script src="rumpf.js?v=20261005home"></script>
+<script src="fraese.js?v=20261004gerade2"></script>
+<script src="schrift_fonts.js?v=20261004gerade2"></script>
+<script src="schrift.js?v=20261004gerade2"></script>
+<script src="ausschnitt.js?v=20261004khfrei"></script>
+<script src="schrift_gcode.js?v=20261006schale7"></script>
+<script src="ausschnitt_gcode.js?v=20261006schale7"></script>
+<script src="kfm.js?v=20261004gerade2"></script>
+<script src="foildb.js?v=20261004gerade2"></script>
+<script src="compute.js?v=20261004gerade2"></script>
+<script src="wings.js?v=20261006schale7"></script>
+<script src="overview_bg.js?v=20261004gerade2"></script>
+<script src="overview.js?v=20261004gerade2"></script>
+<script src="ptedit.js?v=20261004gerade2"></script>
+<script src="profedit.js?v=20261004gerade2"></script>
+<script src="tabmenu.js?v=20261004gerade2"></script>
+<script src="app.js?v=20261005cockpit"></script>
 </body>
 </html>
 

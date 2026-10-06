@@ -98,8 +98,8 @@
     };
     const goSafeAtOrigin  = () => go(P(0, safeY, 0, safeY), true);
     const returnFromSafe  = () => { go(P(0, safeY, 0, safeY), true); go(P(0, 0, 0, 0), true); };
-    const emitShellCut = (sy, fr) => {                        // horizontaler Schalen-Trennschnitt (Trapez)
-      go(P(0, my(sy.l), 0, my(sy.r)), true);                  // hinter dem Block auf Schnitthöhe
+    const emitShellCut = (sy, fr, st) => {                    // horizontaler Schalen-Trennschnitt (Trapez)
+      go(P(st ? st.l : 0, my(sy.l), st ? st.r : 0, my(sy.r)), true); // hinter dem Block auf Schnitthöhe
       go(P(mx(fr.l), my(sy.l), mx(fr.r), my(sy.r)), false);   // Horizontalschnitt durch den Block
       go(P(mx(fr.l), safeY, mx(fr.r), safeY), true);          // vor dem Block hoch
       go(P(0, safeY, 0, safeY), true);                        // zurück über den Block
@@ -112,12 +112,28 @@
       if (finish !== false) go(P(0, 0, 0, 0), true);          // vertikal auf Null
     };
 
-    if (SC) emitShellCut(SC.top, SC.front);                   // Oberschale vor dem Kern
+    // Schalenschnitt + „vor Profilschnitt": Oberschale zwischen Blockschnitten und
+    // Profil (hinten, vorne, Oberschale von vorne nach hinten) — wie hotwire_gcode.js.
+    const shellMerged = !!(SC && bc && mode === 'before');
+    if (SC && !shellMerged) emitShellCut(SC.top, SC.front);   // Oberschale vor dem Kern
 
     if (mode === 'only') {
       goSafeAtOrigin();
       if (bc) { emitBlockAt(bc.rear); emitBlockAt(bc.front); }
       returnFromSafe();
+    } else if (shellMerged) {
+      goSafeAtOrigin();
+      emitBlockAt(bc.rear);
+      emitBlockAt(bc.front);
+      go(P(mx(bc.front.l) + SC.preF, safeY, mx(bc.front.r) + SC.preF, safeY), true); // Abstand vor die Blockvorderkante
+      go(P(mx(bc.front.l) + SC.preF, my(SC.top.l), mx(bc.front.r) + SC.preF, my(SC.top.r)), true); // vor dem Block runter
+      const backX = m => Math.max(Math.min(0, m), m - SC.preR);   // wie hotwire_gcode.js
+      const bl = backX(mx(bc.rear.l)), br = backX(mx(bc.rear.r));   // Abstand hinter dem Block
+      go(P(bl, my(SC.top.l), br, my(SC.top.r)), false);                          // Oberschale vorne -> hinten
+      go(P(bl, my(L[0].y), br, my(R[0].y)), true);                               // hinter dem Block auf Profilanfang
+      go(P(mx(L[0].x), my(L[0].y), mx(R[0].x), my(R[0].y)), true);
+      contour();
+      go(P(bl, my(L[last].y), br, my(R[last].y)), true);                         // Abstand hinter den Block
     } else if (mode === 'before' && bc) {
       goSafeAtOrigin();
       emitBlockAt(bc.front);
@@ -152,7 +168,11 @@
       emitProfileHorizontal(true);
     }
 
-    if (SC) { emitShellCut(SC.bottom, SC.front); go(P(0, 0, 0, 0), true); }  // Unterschale nach dem Kern
+    if (SC) {                                                 // Unterschale nach dem Kern
+      emitShellCut(SC.bottom, shellMerged ? { l: SC.front.l - SC.preF, r: SC.front.r - SC.preF } : SC.front,
+        shellMerged ? { l: cur.lx, r: cur.rx } : null);
+      go(P(0, 0, 0, 0), true);
+    }
 
     return { moves: mv, label: T('Kerndesign') };
   }

@@ -1703,6 +1703,8 @@
     // Reiter „Schriften" (optional): Text, Schrift und Einstellungen zurücksetzen.
     if (window.Schrift && Schrift.reset) { try { Schrift.reset(); } catch (e) {} }
     if (window.Ausschnitt && Ausschnitt.reset) { try { Ausschnitt.reset(); } catch (e) {} }
+    if (window.StlBody && StlBody.reset) { try { StlBody.reset(); } catch (e) {} }   // eigenes STL-Rumpfmodell verwerfen
+    if (window.Decals && Decals.reset) { try { Decals.reset(); } catch (e) {} }
     // Reiter „Auslegung": Altprojekte ohne cfg.ausl starten mit den Vorgaben.
     if (window.Auslegung && Auslegung.reset) { try { Auslegung.reset(); } catch (e) {} }
     // Reiter „Profiloptimierung": Ausgangsprofil, Ziele und Ergebnisse zurücksetzen.
@@ -1799,6 +1801,8 @@
     // Reiter „Schriften": Altprojekte ohne sc*-Werte starten mit den Vorgaben.
     if (window.Schrift && Schrift.reset) { try { Schrift.reset(); } catch (e) {} }
     if (window.Ausschnitt && Ausschnitt.reset) { try { Ausschnitt.reset(); } catch (e) {} }
+    if (window.StlBody && StlBody.reset) { try { StlBody.reset(); } catch (e) {} }   // STL-Rumpfmodell des Vorprojekts verwerfen (kommt aus d.cfg.stlBody)
+    if (window.Decals && Decals.reset) { try { Decals.reset(); } catch (e) {} }   // Altprojekte ohne cfg.decals: leer starten
     ['negStegeOn', 'negStegeList', 'negStegeGap', 'negStegeOnly'].forEach(k => {
       const v = PROJECT_DEFAULTS.cfg[k]; state.cfg[k] = (v && typeof v === 'object') ? JSON.parse(JSON.stringify(v)) : v;
     });

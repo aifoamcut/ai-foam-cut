@@ -756,6 +756,7 @@
   const CAM0 = Object.assign({}, cam);
   let cam2 = { side: { zoom: 1, px: 0, py: 0 }, top: { zoom: 1, px: 0, py: 0 }, sec: { zoom: 1, px: 0, py: 0 } };
   let center = [0, 0, 0], radius = 100;
+  let pivot = null;            // eigener Drehpunkt (Mausrad-Doppelklick), sonst Modellmitte
   let dragging = false, dragMode = '', lastX = 0, lastY = 0, bound = false, hot = null, dragH = null, dragCtrl = false;
   const LIGHT = (() => { const l = [-0.35, 0.55, 0.75]; const n = Math.hypot(...l); return l.map(x => x / n); })();
   const img = { side: null, top: null, sec: null };   // Image-Objekte (nur RAM)
@@ -769,6 +770,35 @@
     const r = rot([x - center[0], y - center[1], z - center[2]]);
     const s = 0.42 * Math.min(W, H) / radius * cam.zoom;
     return { x: W / 2 + cam.px + s * r[0], y: H / 2 + cam.py - s * r[1], d: r[2] };
+  }
+  function resetCam(over) { cam = Object.assign({}, CAM0, over || {}); pivot = null; }
+  // Angezeigte Netze (Rumpf + ggf. Tragfläche) für die Trefferprüfung.
+  function shownMeshes() { return model && model.mesh ? (model.wingMesh ? [model.mesh, model.wingMesh] : [model.mesh]) : []; }
+  // Weltpunkt unter dem Bildschirmpunkt (x, y): vorderstes Dreieck (kleinstes d), sonst nächster Netzpunkt in 14 px.
+  function pick3d(x, y) {
+    let best = null;
+    for (const m of shownMeshes()) {
+      const v = m.v;
+      for (let i = 0; i < v.length; i += 9) {
+        const a = scr(v[i], v[i + 1], v[i + 2]), b = scr(v[i + 3], v[i + 4], v[i + 5]), c = scr(v[i + 6], v[i + 7], v[i + 8]);
+        if (x < Math.min(a.x, b.x, c.x) || x > Math.max(a.x, b.x, c.x) || y < Math.min(a.y, b.y, c.y) || y > Math.max(a.y, b.y, c.y)) continue;
+        const den = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y); if (Math.abs(den) < 1e-9) continue;
+        const u = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / den, w = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / den, t = 1 - u - w;
+        if (u < -1e-6 || w < -1e-6 || t < -1e-6) continue;
+        const d = u * a.d + w * b.d + t * c.d;
+        if (!best || d < best.d) best = { d, pt: [u * v[i] + w * v[i + 3] + t * v[i + 6], u * v[i + 1] + w * v[i + 4] + t * v[i + 7], u * v[i + 2] + w * v[i + 5] + t * v[i + 8]] };
+      }
+    }
+    if (best) return best.pt;
+    if (!(window.ViewCube && ViewCube.pickNear)) return null;
+    return ViewCube.pickNear(x, y, cb => { for (const m of shownMeshes()) { const v = m.v; for (let i = 0; i < v.length; i += 3) cb(v[i], v[i + 1], v[i + 2]); } }, scr);
+  }
+  // Drehpunkt auf den Modellpunkt unter dem Cursor setzen; der Punkt bleibt dabei am Bildschirm stehen.
+  function setPivotAt(x, y) {
+    const pt = pick3d(x, y); if (!pt) return false;
+    const q = scr(pt[0], pt[1], pt[2]);
+    pivot = pt; center = pt; cam.px = q.x - W / 2; cam.py = q.y - H / 2;
+    return true;
   }
   function fit() {
     canvas = document.getElementById('cRumpf'); if (!canvas) return false;
@@ -906,6 +936,7 @@
     if (mode === 'wire') {
       gl.uniform1i(glL.uWire, 2); gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 2);
       for (const b of bufs) { bind(b); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.ibo); gl.drawElements(gl.TRIANGLES, b.n, gl.UNSIGNED_INT, 0); }
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));   // Treiberfalle: sonst gehen die Linien ab dem 2. Bild verloren
       gl.disable(gl.POLYGON_OFFSET_FILL); gl.uniform1i(glL.uWire, 1);
       for (const b of bufs) { bind(b); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.lbo); gl.drawElements(gl.LINES, b.nl, gl.UNSIGNED_INT, 0); }
     } else {
@@ -929,8 +960,10 @@
     if (!model || !model.mesh) { glHide(); setInfo(model && model.err ? model.err : T('Kein Rumpf.'), true); return; }
     let { mn, mx } = model.bounds;
     const meshes = [model.mesh]; if (model.wingMesh) { meshes.push(model.wingMesh); const b = meshBounds(model.wingMesh); mn = mn.map((v, k) => Math.min(v, b.mn[k])); mx = mx.map((v, k) => Math.max(v, b.mx[k])); }
-    center = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
     radius = Math.max(1, Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) / 2);
+    // Drehpunkt weit außerhalb des (neuen) Modells -> wieder Modellmitte
+    if (pivot && pivot.some((v, k) => v < mn[k] - radius || v > mx[k] + radius)) { pivot = null; cam.px = cam.py = 0; }
+    center = pivot || [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
     if (glActive()) { glc.style.display = ''; glDraw(meshes); ctx.clearRect(0, 0, W, H); }
     else { glHide(); for (const m of meshes) drawShaded(m); }
     if (C('rumpfShowSt')) {
@@ -941,6 +974,7 @@
       }
     }
     drawAxes();
+    if (pivot && window.ViewCube && ViewCube.drawPivot) { const q = scr(pivot[0], pivot[1], pivot[2]); ViewCube.drawPivot(ctx, q.x, q.y); }
     setInfo(infoText());
   }
   function infoText() {
@@ -1314,9 +1348,14 @@
   }
   function bindCanvas() {
     if (!canvas || bound) return; bound = true;
-    if (window.ViewCube) ViewCube.attach({ canvas: () => canvas, get: () => cam, set: (y, p) => { cam.yaw = y; cam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [-0.01, -0.01] });
+    if (window.ViewCube) ViewCube.attach({ reset: () => resetCam(), canvas: () => canvas, get: () => cam, set: (y, p) => { cam.yaw = y; cam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [-0.01, -0.01] });
     let downX = 0, downY = 0, moved = false;
     const pos = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    // Mausrad-Doppelklick in der 3D-Ansicht: neuer Drehpunkt am Modellpunkt unter dem Cursor
+    if (window.ViewCube && ViewCube.midDbl) ViewCube.midDbl(canvas, (x, y) => {
+      if (C('rumpfView') !== '3d' || !setPivotAt(x, y)) return false;
+      dragging = false; draw(); return true;
+    });
     canvas.addEventListener('mousedown', e => {
       const v = C('rumpfView'); dragging = true; moved = false; lastX = downX = e.clientX; lastY = downY = e.clientY; dragH = null; dragCtrl = e.ctrlKey;
       if (v === '3d') dragMode = (e.shiftKey || e.button === 1) ? 'pan' : 'rot';
@@ -1349,7 +1388,7 @@
     });
     canvas.addEventListener('dblclick', e => {
       const v = C('rumpfView');
-      if (v === '3d') { cam = Object.assign({}, CAM0); draw(); return; }
+      if (v === '3d') { resetCam(); draw(); return; }
       const [mx, my] = pos(e);
       if ((v === 'side' || v === 'top') && xf2) { if (hitHandle(v, mx, my)) return; const [u] = xf2.inv(mx, my); insertStation(u); return; }
       if (v === 'sec') { if (hitHandle(v, mx, my)) return; if (insertNodeAt(mx, my)) return; }
@@ -1377,9 +1416,9 @@
       else if (e.key === 'Delete' && v !== '3d') { removeStation(selIdx()); }
     });
     const vb = (id, fn) => { const b = document.getElementById(id); if (b) b.onclick = fn; };
-    const setView = v => { S('rumpfView', v); if (v === '3d') cam = Object.assign({}, CAM0); buildSidebar(); draw(); };
+    const setView = v => { S('rumpfView', v); if (v === '3d') resetCam(); buildSidebar(); draw(); };
     vb('rumpfIso', () => setView('3d'));
-    vb('rumpf3dTop', () => { S('rumpfView', '3d'); cam = Object.assign({}, CAM0, { yaw: 0, pitch: 1.5 }); buildSidebar(); draw(); });
+    vb('rumpf3dTop', () => { S('rumpfView', '3d'); resetCam({ yaw: 0, pitch: 1.5 }); buildSidebar(); draw(); });
     vb('rumpfSideV', () => setView('side'));
     vb('rumpfTopV', () => setView('top'));
     vb('rumpfSecV', () => setView('sec'));

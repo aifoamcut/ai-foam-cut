@@ -218,8 +218,10 @@
     let mnx = 1e9, mxx = -1e9, mny = 1e9, mxy = -1e9;
     segs.forEach(S => [S.root, S.tip].forEach(a => a.forEach(p => { if (p.x < mnx) mnx = p.x; if (p.x > mxx) mxx = p.x; if (p.y < mny) mny = p.y; if (p.y > mxy) mxy = p.y; })));
     const zLo = Math.min.apply(null, segs.map(S => Math.min(S.z0, S.z1))), zHi = Math.max.apply(null, segs.map(S => Math.max(S.z0, S.z1)));
-    // Drehpunkt: per Doppelklick aufs Modell gesetzt, sonst Modellmitte.
+    // Drehpunkt: per Doppelklick (links oder Mausrad) aufs Modell gesetzt, sonst Modellmitte.
+    // O = Kameraraum-Lage des Drehpunkts beim Setzen (hält das Bild beim Umsetzen unverändert).
     const C = seg3d.pivot || { x: (mnx + mxx) / 2, y: (mny + mxy) / 2, z: (zLo + zHi) / 2 };
+    const O = (seg3d.pivot && seg3d.pivOff) || { x: 0, y: 0, d: 0 };
     const R = Math.max(1, Math.hypot(mxx - mnx, mxy - mny, zHi - zLo) / 2);
     const cy = Math.cos(seg3d.yaw), sy = Math.sin(seg3d.yaw), cpch = Math.cos(seg3d.pitch), spch = Math.sin(seg3d.pitch);
     const dist = R * 3.2;
@@ -228,8 +230,15 @@
       const dx = p.x - C.x, dy = p.y - C.y, dz = p.z - C.z;
       const x1 = dz * cy - dx * sy, z1 = dz * sy + dx * cy;          // Drehung um Hochachse
       const y2 = dy * cpch - z1 * spch, z2 = dy * spch + z1 * cpch;   // Kippen
-      return { x: x1, y: y2, d: dist + z2 };
+      return { x: x1 + O.x, y: y2 + O.y, d: dist + z2 + O.d };
     };
+    // Umkehrung von cam(): Kameraraum -> Welt.
+    const camInv = c => {
+      const x1 = c.x - O.x, y2 = c.y - O.y, z2 = c.d - dist - O.d;
+      const dy = y2 * cpch + z2 * spch, z1 = -y2 * spch + z2 * cpch;
+      return { x: C.x - x1 * sy + z1 * cy, y: C.y + dy, z: C.z + x1 * cy + z1 * sy };
+    };
+    seg3d.view = { cam, camInv, f, w, h, dist };
     const proj = c => ({ x: w / 2 + seg3d.px + c.x * f / c.d, y: h / 2 + seg3d.py - c.y * f / c.d });
     const L = { x: -0.4, y: 0.7, z: -0.6 }; const ll = Math.hypot(L.x, L.y, L.z); L.x /= ll; L.y /= ll; L.z /= ll;
     const faces = [];
@@ -294,11 +303,12 @@
       });
       ctx.fillStyle = col(F.c, F.lit); ctx.fill(F.holes ? 'evenodd' : 'nonzero');
       ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.6; ctx.stroke();
-      pick.push({ sp, wc: F.wc });
+      pick.push({ sp, wc: F.wc, cp: F.pts, hs: (F.holes || []).map(hh => hh.map(proj)) });
     });
     seg3d.pick = pick;
     // Drehpunkt-Markierung (nur wenn per Doppelklick gesetzt).
-    if (seg3d.pivot) {
+    if (seg3d.pivot && window.ViewCube && ViewCube.drawPivot) { const s = proj(cam(seg3d.pivot)); ViewCube.drawPivot(ctx, s.x, s.y); }
+    else if (seg3d.pivot) {
       const s = proj(cam(seg3d.pivot));
       ctx.strokeStyle = App.PAL.accent || '#4aa3ff'; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.stroke();
@@ -343,7 +353,7 @@
     };
     ax({ x: R, y: 0, z: 0 }, 'X', '#e06b6b'); ax({ x: 0, y: R, z: 0 }, 'Y', '#6bc46b'); ax({ x: 0, y: 0, z: R }, 'Z', '#6b9be0');
     ctx.textAlign = 'left'; ctx.fillStyle = muted; ctx.font = '10px system-ui';
-    ctx.fillText(T('Ziehen: drehen · Mausrad/rechte Maus/Umschalt: verschieben · Rad: Zoom · Doppelklick Modell: Drehpunkt · Doppelklick leer: zurücksetzen · Gizmo: Klick = Ansicht'), 10, h - 8);
+    ctx.fillText(T('Ziehen: drehen · Mausrad/rechte Maus/Umschalt: verschieben · Rad: Zoom · Doppelklick/Mausrad-Doppelklick Modell: Drehpunkt · Doppelklick leer: zurücksetzen · Gizmo: Klick = Ansicht'), 10, h - 8);
     if (!window.ViewCube) seg3dDrawGizmo(ctx, w, h); else seg3d.gizmo = null;   // Ansichtswürfel (viewcube.js) ersetzt das Achsen-Gizmo
   }
   // Richtungsvektor (Welt) -> Kameraraum (nur Drehung, wie cam() ohne Verschiebung).
@@ -390,12 +400,39 @@
     ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
     seg3d.gizmo = g;
   }
-  // Modell unter dem Mauszeiger (Canvas-Pixel): Welt-Schwerpunkt der vordersten
-  // getroffenen Fläche oder null. seg3d.pick liegt hinten -> vorn sortiert.
+  // Modell unter dem Mauszeiger (Canvas-Pixel): Weltpunkt auf der vordersten getroffenen
+  // Fläche (Sehstrahl ∩ Flächenebene; Rückfall Flächenschwerpunkt) oder null.
+  // seg3d.pick liegt hinten -> vorn sortiert.
   function seg3dPickModel(x, y) {
-    const P = seg3d.pick; if (!P) return null;
-    for (let k = P.length - 1; k >= 0; k--) if (pointInPoly({ x, y }, P[k].sp)) return P[k].wc;
+    const P = seg3d.pick, V = seg3d.view; if (!P) return null;
+    const q = { x, y };
+    for (let k = P.length - 1; k >= 0; k--) {
+      const F = P[k];
+      if (!pointInPoly(q, F.sp) || F.hs.some(hp => pointInPoly(q, hp))) continue;
+      if (!V || !F.cp || F.cp.length < 3) return F.wc;
+      // Flächennormale (Newell) im Kameraraum, Sehstrahl (a·t, b·t, t) durch den Bildpunkt.
+      let nx = 0, ny = 0, nd = 0, gx = 0, gy = 0, gd = 0; const c = F.cp, n = c.length;
+      for (let i = 0; i < n; i++) {
+        const u = c[i], v = c[(i + 1) % n];
+        nx += (u.y - v.y) * (u.d + v.d); ny += (u.d - v.d) * (u.x + v.x); nd += (u.x - v.x) * (u.y + v.y);
+        gx += u.x; gy += u.y; gd += u.d;
+      }
+      gx /= n; gy /= n; gd /= n;
+      const a = (x - V.w / 2 - seg3d.px) / V.f, b = -(y - V.h / 2 - seg3d.py) / V.f;
+      const den = nx * a + ny * b + nd, t = (nx * gx + ny * gy + nd * gd) / den;
+      if (!(Math.abs(den) > 1e-12) || !(t > 0) || !isFinite(t)) return F.wc;
+      return V.camInv({ x: a * t, y: b * t, d: t });
+    }
     return null;
+  }
+  // Drehpunkt auf den Modellpunkt unter (x, y) legen. Die Kameraraum-Lage des Punkts wird
+  // als Versatz gemerkt: cam(p) bleibt für JEDEN Punkt gleich (kein Springen, auch in der
+  // Perspektive); danach dreht die Ansicht um diesen Punkt.
+  function seg3dSetPivotAt(x, y) {
+    const hit = seg3dPickModel(x, y), V = seg3d.view; if (!hit || !V) return false;
+    const hc = V.cam(hit);
+    seg3d.pivot = hit; seg3d.pivOff = { x: hc.x, y: hc.y, d: hc.d - V.dist };
+    renderSeg3DWin(); return true;
   }
   // Trefferprüfung Gizmo: { ball: i } | { bg: true } | null (Position in Canvas-Pixeln).
   function seg3dGizmoHit(x, y) {
@@ -450,7 +487,7 @@
   // Verdrahtung: Maus im Canvas (Orbit/Verschieben/Zoom), Fenster ziehen, Tasten.
   function seg3dWire() {
     const el = seg3dWinEl(), cv = document.getElementById('cSeg3d'); if (!el || !cv || el._wired) return; el._wired = true;
-    if (window.ViewCube) ViewCube.attach({ canvas: () => document.getElementById('cSeg3d'), get: () => seg3d, set: (y, p) => { seg3d.yaw = y; seg3d.pitch = p; }, redraw: () => renderSeg3DWin(), k: [0.01, -0.01],
+    if (window.ViewCube) ViewCube.attach({ reset: () => { Object.assign(seg3d, SEG3D_CAM0); seg3d.pivot = null; }, canvas: () => document.getElementById('cSeg3d'), get: () => seg3d, set: (y, p) => { seg3d.yaw = y; seg3d.pitch = p; }, redraw: () => renderSeg3DWin(), k: [0.01, -0.01],
       rot: (v, yaw, pitch) => { const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), x1 = v[2] * cy - v[0] * sy, z1 = v[2] * sy + v[0] * cy; return [x1, v[1] * cp - z1 * sp, v[1] * sp + z1 * cp]; },
       labels: { '+x': 'Endleiste', '-x': 'Nase', '+y': 'Oben', '-y': 'Unten', '+z': 'Außen', '-z': 'Wurzel' } });
     const cvPos = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -494,16 +531,13 @@
     }, { passive: false });
     cv.addEventListener('dblclick', e => {
       e.preventDefault();
-      const q = cvPos(e), hit = seg3dPickModel(q.x, q.y);
-      if (hit) {
-        // Drehpunkt auf den getroffenen Punkt legen. Damit die Ansicht dabei nicht
-        // springt, die Bildverschiebung so setzen, dass der neue Drehpunkt an der
-        // Klickstelle bleibt (Drehpunkt liegt immer bei Bildmitte + px/py).
-        const r = cv.getBoundingClientRect();
-        seg3d.pivot = hit; seg3d.px = q.x - r.width / 2; seg3d.py = q.y - r.height / 2;
-      } else { Object.assign(seg3d, SEG3D_CAM0); seg3d.pivot = null; }
+      const q = cvPos(e);
+      if (seg3dSetPivotAt(q.x, q.y)) return;   // Doppelklick aufs Modell: Drehpunkt (ohne Springen)
+      Object.assign(seg3d, SEG3D_CAM0); seg3d.pivot = null;
       renderSeg3DWin();
     });
+    // Mausrad-Doppelklick: ebenfalls Drehpunkt; daneben bleibt Mausrad-Ziehen = verschieben.
+    if (window.ViewCube && ViewCube.midDbl) ViewCube.midDbl(cv, (x, y) => seg3dSetPivotAt(x, y));
     const head = el.querySelector('.head');
     if (head) head.addEventListener('mousedown', e => {
       if (e.target.closest('button,select,input')) return;

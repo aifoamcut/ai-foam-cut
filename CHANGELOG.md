@@ -4,6 +4,209 @@ Alle nennenswerten Änderungen an **AI Foam Cut** werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/).
 Neueste Einträge oben.
 
+## [1.8] — 2026-10-06
+### Build: Electron-Ausgabe für Windows 7 / 32 Bit (2026-10-04)
+- Neue `BUILD_TOOL_ELECTRON_WIN7.bat` / `build_tool_electron_win7.py`: eigenes Programmfenster auf Basis von
+  Electron 22 (Chromium 108), 32 Bit, für Windows 7 SP1 und neuer. Systemanforderungen in
+  `SYSTEMANFORDERUNGEN_WIN7-32.txt`. Noch nicht auf einem echten Windows 7 getestet.
+- Electron-Fenster: Abstürze von Renderer/GPU-Prozess und JS-Fehler landen in `afc-start.log` neben der exe.
+
+### Kerndesign: Schalenschnitt + Blockschnitt ohne Leerfahrt (2026-10-06)
+- Mit „Ober-/Unterschale schneiden" und „Blockschnitt vor Profilschnitt" fährt der Draht nicht mehr erst die
+  Oberschale vom Nullpunkt aus, dann hoch, zurück auf Null und wieder vor zum Blockschnitt. Neue Reihenfolge:
+  **hinteres Blockende → Blockvorderkante → kurz vor den Block, dort runter, Oberschale von vorne nach hinten bis
+  kurz hinter den Block → dort runter auf den Profilanfang, Profilschnitt → nur bis kurz hinter den Block, runter,
+  Unterschale bis kurz vor den Block → hoch und zurück auf Null.**
+- Neue Einstellungen unter „Schalenschnitte": **Abstand vor dem Block** und **Abstand hinter dem Block** (je
+  Standard 5 mm, je Tragfläche gespeichert). Hinter Null-X fährt der Draht nur, wenn das hintere Blockende selbst
+  dahinter liegt (Pfeilung) — dann bis in dessen Schnittspalt.
+- Die Bahnvorschau ohne G-Code-Erzeugung (Design-Ausgabe) zeigt denselben Ablauf. Andere Modi („nach"/„während"
+  Profilschnitt, von vorne, nur eine Profilseite, Anfahrweg) bleiben unverändert.
+
+### STL-Vorschau vor jedem STL-Export (2026-10-05)
+- Jeder STL-Export im Programm zeigt vor dem Speichern-Dialog eine **3D-Vorschau genau der Datei, die geschrieben
+  wird** (inkl. Exportlage Z oben / Nullpunkt / gedrehte Formhälfte / Segmentierung): Formenbau (Urmodell, Fläche,
+  Randbogen/Winglet, Formhälften, Druckstücke), Rumpf, 3D-Modell-Segmente und Rippen.
+- Je Datei: Maße, Lage, Dreiecke, Dateigröße und **Kantenprüfung** (wasserdicht / offene bzw. mehrfach genutzte
+  Kanten, ungültige Eckpunkte). **Rückseiten rot** zeigt falsch orientierte Dreiecke. Bei mehreren Dateien eine
+  gemeinsame Vorschau, jede Datei eigene Farbe, per Klick ein-/ausblendbar.
+- Bedienung: links ziehen = drehen, rechts ziehen = verschieben, Rad = Zoom zum Cursor, Mausrad-Doppelklick =
+  Drehpunkt, ⌂/Pos1 bzw. Doppelklick = Ansicht zurück. Enter = Speichern, Esc = Abbrechen.
+- „Alle Segmente exportieren" im 3D-Modell schreibt jetzt nach einer gemeinsamen Vorschau in einen gewählten Ordner
+  (statt vieler Speichern-Dialoge gleichzeitig).
+- Neues Kernmodul `stlpreview.js` (hängt sich in `App.download`/`App.exportViaPicker` ein; Mehrfach-Exporte rufen
+  `App.stlPreview` geschützt auf).
+
+### Formenbau: V-Form für Randbogen und Winglet (2026-10-05)
+- Neuer Wert **„V-Form Randbogen / Winglet (°)"** im Block „Randbogen / Wingtip": der ganze Randbogen bzw. das ganze
+  Winglet wird an der letzten Rippe um die Sehnenachse durch die Nase geknickt (positiv = nach oben, zusätzlich zur
+  V-Form der Tragfläche).
+- Die **Trennebene** zwischen Tragfläche und Abschluss liegt auf der **Winkelhalbierenden des Knicks** — jedes Teil
+  nimmt den halben Winkel auf. Die **Steckungsbohrungen** stehen senkrecht auf dieser Ebene und gehen **gerade durch
+  beide Teile** (in jedem Teil um den halben Knickwinkel schräg, dadurch Platz auf beiden Seiten); die Löcher beider
+  Teile sind deckungsgleich.
+- Wirkt im Urmodell (ganz und getrennt exportiert, STL und STEP) und bei den Einzelteilen; Formhälften der ganzen
+  Tragfläche bleiben ohne Knick.
+
+### Formenbau: 2D-Schnitt zeigt die Tragfläche nicht mehr doppelt (2026-10-05)
+- Schnitt längs der Spannweite (z. B. Ebene „Sehne X") bei Tragfläche **mit Winglet bzw. eigenem Randbogen-Körper**:
+  Die Schnittkontur zerfiel in Ober- und Unterseite, und jedes Stück wurde mit einer Geraden zur Wurzel geschlossen.
+  Dadurch erschien die Fläche doppelt und überkreuzt. Die Kontur wird jetzt am offenen Rand (Ansatz des Winglets)
+  in beide Richtungen verkettet und als ein Stück gezeichnet.
+
+### „Ansicht wiederherstellen" in allen 3D-Ansichten (2026-10-05)
+- Neuer Knopf **⌂** oben rechts in jeder 3D-Ansicht (links neben dem Ansichtswürfel, wo es keinen gibt in der Ecke):
+  setzt **Drehung, Zoom, Verschiebung und Drehpunkt** auf die Ausgangsansicht zurück. Dasselbe mit der Taste **Pos1**,
+  solange die Maus über dem 3D-Bild steht. Gilt für 3D-Modell, Kern-/Segment-3D, Schneiden (Block), Simulator + Monitor,
+  Formenbau, Rumpf und Rippen-STL-Vorschau.
+
+### Formenbau: Steckungs-Taschen laufen bis zum Formende durch (2026-10-05)
+- **Negativform**, Tragflächensteckung (Wurzelverlängerung) und Anschluss-Steckung: ist eine Ausnehmung mindestens
+  so lang wie der Überstand, läuft die Tasche jetzt **offen bis zum Ende der Form** durch. Bisher blieb dort eine
+  senkrechte Stirnwand stehen, obwohl die Länge größer als der Überstand war. Kürzere Ausnehmungen enden wie bisher
+  mit einer Stirnwand; das geteilte Urmodell (aufgesetzter Steckungskörper) ist unverändert.
+
+### Guillotine: mit X-Versatz senkrecht rauf, oben hin und oben zurück (2026-10-05)
+- Liegt der Schnitt nicht bei X0 (X-Abstand oder Winkel), fährt der Draht nicht mehr waagrecht über Y0 durch den
+  Werkstoff: erst **senkrecht rauf** auf die Schnitthöhe, **oben waagrecht** zum Schnittpunkt (Draht aus), Pause,
+  Schnitt runter (ggf. Überfahrt + Pause), dann **in der Schnittfuge wieder hoch**, **oben zurück** auf X0 und erst
+  dort senkrecht runter auf den Nullpunkt. „Rauffahren" (Eilgang/Schnitt) gilt dann für das Hochfahren in der Fuge,
+  **Standard jetzt „Schnitt"** (Draht ein).
+- Unten wird immer die **Verweilzeit des Werkstoffs** gehalten; neue Option **„Pause nach dem Schnitt"** (nach Schnitt
+  und Verweilen, Draht aus, z. B. Abschnitt entnehmen) — ersetzt die bisher feste Pause bei Überfahrt.
+- Neue Wahl **Rückfahrt**: „über Sicherheitshöhe" (Standard, **Sicherheitshöhe** 10 mm: in der Fuge nur bis dahin hoch,
+  dort waagrecht zurück auf X0) oder „über den Schneideweg" (Fuge ganz rauf, oben zurück wie beim Hinfahren).
+
+### Alle 3D-Ansichten: Mausrad-Doppelklick setzt den Drehpunkt (2026-10-04)
+- Doppelklick mit dem **Mausrad** (mittlere Taste) auf das Modell legt dort den neuen **Drehpunkt** — die Ansicht springt
+  dabei nicht, danach dreht (und zoomt) sie um diesen Punkt; gelbes Fadenkreuz markiert ihn. Bisher nur im Formenbau,
+  jetzt auch in 3D-Modell, Simulator (G-Code + Monitor), Tragflächen-/DXF-3D-Fenster, Blockansicht (Schneiden), Rumpf
+  und Rippen-STL-Vorschau.
+- Linker Doppelklick (Ansicht zurücksetzen), Standardansichten und ein neues Modell setzen den Drehpunkt zurück auf die
+  Modellmitte. Im Tragflächen-3D-Fenster setzt auch der linke Doppelklick aufs Modell den Drehpunkt — jetzt genau auf den
+  getroffenen Flächenpunkt statt den Flächenschwerpunkt, ohne Sprung.
+
+### Ausschnitte: Kabinenhaubenausschnitt als freier Linienzug (2026-10-04)
+- Kabinenhaubenausschnitt mit neuer Einstellung **„Art der Schnittlinie"**: neben den bisherigen drei Linien
+  (vorne, unten, hinten) jetzt auch **„freier Linienzug"**. Beliebig viele Punkte
+  von der Blockoberkante zur Blockoberkante; je Abschnitt **gerade**, **Spline** (Wölbung + Lage) oder **Seite eines
+  Tragflächenprofils** (NACA 00xx, Wurzelrippe aus dem Tragflächendesign oder .dat-Datei; Ober-/Unterseite,
+  Profilnase am Anfang oder Ende, Höhe in %). An jedem Innenpunkt ein Übergangsradius **R**.
+- Punkttabelle (X ab Blockvorderseite, Tiefe unter der Oberkante) mit „+ Punkt"/„Punkt löschen"; in der Ansicht
+  Griffe ziehen, **Doppelklick** auf die Linie setzt einen Punkt, **Rechtsklick** auf einen Punkt löscht ihn.
+- Beim ersten Umschalten werden die drei Linien formgleich übernommen; „Aus den drei Linien neu anlegen" setzt zurück.
+  Abbrandseite, Überlauf, Schnittrichtung, Blockgröße (auto) und G-Code wie bisher.
+
+### Drahtgitter verschwand beim Zoomen (2026-10-04)
+- **Rumpf**: Im Modus **Drahtgitter** verschwand das ganze Netz nach dem ersten
+  Zoomen oder Drehen und kam erst nach erneutem Umschalten zurück. Ursache war eine Grafiktreiber-Falle (ANGLE/D3D mit
+  Kantenglättung): Linien direkt nach den verdeckenden Flächen gingen ab dem zweiten Bild verloren. Zwischen beiden
+  Durchgängen wird jetzt synchronisiert — das Drahtgitter bleibt bei jedem Zoom und jeder Drehung stehen.
+
+### Profildatenbank: Gestalter für Stufenprofile (KFm) und Knickprofile (2026-10-04)
+- Neuer Knopf **„KFm-/Knickprofil gestalten…“** in der Seitenleiste der Profildatenbank. Vorlagen KFm1 bis KFm4, ebene
+  Platte und Knickplatte; frei einstellbar: Dicke der Grundplatte, bis zu sechs Stufen (oben/unten, Lage, Höhe),
+  Nasenform (rund, elliptisch, spitz), Knicke der Platte (Lage, Winkel) und eine angeschärfte Endleiste. Alle Maße in
+  % der Sehne, dazu eine mm-Anzeige für eine frei wählbare Sehne. Der Entwurf läuft live im Vergleichsbild mit.
+- **Speichern** in die Profildatenbank (sofort im Tragflächendesigner wählbar) und als
+  **.dat-Datei** (Selig-Format).
+- Die Punkt-Neuverteilung (Profil laden, Punktzahl ändern) setzt bei Profilen mit scharfen Ecken (> 45°) jetzt je einen
+  Punkt genau auf die Ecke – Stufen bleiben senkrecht statt zur Schräge zu werden. Die Grundplatte liegt waagrecht
+  (Nasenspitze auf Plattenmitte), auch bei Stufen auf nur einer Seite.
+- Die Stufen bleiben beim Einsetzen als Ecken erhalten. Bei diesen Profilen wird die dicke Endleiste beim Laden
+  **nicht** auf 0 geschlossen – auch nicht, wenn die .dat später über „Profil laden“ eingelesen wird (erkannt über die
+  Datenbank bzw. am Namen, der mit „KFm“, „Platte“ oder „Knickplatte“ beginnt).
+
+### Formenbau: Trennebenen der Druckstücke bei Winglet-Formen wählbar (2026-10-04)
+- Segmentierung, Bauteil „nur Randbogen / Winglet“ (Negativform / geteiltes Urmodell): neue Auswahl
+  **Trennebenen (Winglet-Form)** – *senkrecht zur Trennfläche* (neuer Standard: jede Ebene steht quer zum Winglet
+  an ihrer Stelle), *senkrecht zum ebenen Formhinterbau* (zusätzlich rechtwinklig auf der Auflagefläche) oder
+  *senkrecht zur Spannweite* (wie bisher). Bei den ersten beiden zählen Stücklängen und -anzahl längs des Winglets
+  (Bogenlänge); vorher lagen alle Schnitte senkrecht zur Spannweite und liefen schräg durch das Winglet.
+- Vorschau: die Stücke werden längs der Ebenen-Normalen auseinandergezogen, die Ebenen gestrichelt gezeichnet.
+- Passstifte werden bei schrägen Ebenen automatisch gesetzt (manuelle Lage nur bei Ebenen senkrecht zur Spannweite).
+- Teilung robuster: eng beieinanderliegende Schnittpunkte werden verschweißt, die Ebene weicht Netzpunkten gezielt
+  aus (nächste freie Lage statt fester 0,1-mm-Schritte), Splitterdreiecke hinterlassen keine offenen Kanten mehr.
+
+### Formenbau: ebener Formhinterbau für Winglet-Formen (3D-Druck) (2026-10-04)
+- Bauteil „nur Randbogen / Winglet“, Ziel Negativform oder geteiltes Urmodell: neue Auswahl **Formhinterbau** –
+  „folgt der Biegung“ (wie bisher) oder „ebene Auflagefläche“. Die Rückseite besteht dann nur aus ebenen Flächen:
+  den geraden Rückseiten des waagrechten Teils und des Winglets und dazwischen einer Auflagefläche für das Druckbett
+  (außen als Fase an der Ecke, innen füllt sie die Ecke). Beide Hälften bekommen parallele Auflageflächen.
+- Lage der Auflagefläche wählbar: *gleicher Winkel zu beiden Teilen*, *durch die Enden* (die innere Hälfte liegt
+  vollflächig auf) oder *eigener Winkel*; dazu eine Zugabe (Parallelversatz nach außen). Winkel und Breite der
+  Auflagefläche stehen in der Infozeile. Gilt für STL und den STEP-Export der Formhälften.
+- Passlöcher laufen bei ebenem Hinterbau im Bereich der Auflagefläche schräg aus – dort besser ohne Passlöcher.
+
+### Neu: Ausschnitte – rechteckiger Ausschnitt (2026-10-03)
+- Tragflächenausschnitt, Auswahl „Profil“: neue Quelle **„Rechteck (z. B. Plattenleitwerk)“** mit Länge, Dicke
+  und Eckenradius. Einstellwinkel, Lage im Block, Spiel, Anfahrt, Startpunkt und Schnittrichtung gelten wie beim Profil.
+
+### Geändert: Reiter „Tragflächenausschnitt“ heißt jetzt „Ausschnitte“ (2026-10-03)
+- Der Reiter heißt nur noch **„Ausschnitte“** (Tragflächen- und Kabinenhaubenausschnitt) und steht im Menü
+  **„Komplexe Formen“** statt „Tragflächen“. Auch die G-Code-Quelle heißt „Ausschnitte“. Wer die Menüleiste
+  selbst umgestellt hat, behält seine Anordnung (Einstellungen → Menüleiste → „Standard wiederherstellen“).
+
+### Neu: Tragflächen-/Kabinenhaubenausschnitt – Block abwählbar (2026-10-03)
+- Leiste unter der Ansicht: neuer Schalter **„Block“** blendet die Blockdarstellung (Umriss, Beschriftung,
+  Anfahrfläche) aus und ein. Schnittbahn und G-Code bleiben unverändert.
+
+### Neu: Kabinenhaubenausschnitt (2026-10-03)
+- Reiter „Tragflächenausschnitt“: neue Wahl **„Art des Ausschnitts“** – *Tragflächenausschnitt (Profil)* wie
+  bisher oder **Kabinenhaubenausschnitt**. Die Haube ist durch drei Linien bestimmt: vordere, untere
+  („waagrechte“) und hintere Linie. Eingaben: Lage der vorderen Ecke (Abstand zur Blockvorderseite, Tiefe unter
+  der Blockoberkante), Länge und Neigung der unteren Linie, Winkel der vorderen und hinteren Linie,
+  **Übergangsradius vorne und hinten**.
+- Jede der drei Linien ist **gerade oder ein gekrümmter Spline** (Wölbung in mm und Lage der Wölbung in %);
+  die Radien werden auch zwischen gekrümmten Linien tangential eingepasst.
+- Ecken, Linienenden (Winkel) und Wölbungspunkte lassen sich in der Ansicht **mit der Maus ziehen**.
+- Schnitt als offener Zug: Überlauf vor dem Block, vordere Linie hinunter, untere Linie, hintere Linie hinauf,
+  Überlauf, in Luft zurück zum Nullpunkt. Wählbar, was maßhaltig bleibt (Haube, Rumpf oder Draht auf der Linie),
+  Schnittrichtung vorne → hinten oder umgekehrt, Nase links/rechts. Block, Werkstoff, Abbrand und G-Code-Quelle
+  sind dieselben wie beim Tragflächenausschnitt.
+
+### Neu: Tragflächenausschnitt – Profil spiegeln (2026-10-03)
+- Reiter „Tragflächenausschnitt“, Gruppe „Profil“: neue Wahl **„Profil spiegeln“**. Das Profil wird an der
+  Sehne gespiegelt (Oberseite unten); Nase und Endleiste bleiben an ihrem Platz, der Einstellwinkel zählt
+  weiter positiv = Nase hoch. Links/rechts tauscht wie bisher „Nase zeigt nach“.
+
+### Behoben: Grube auf der Winglet-Oberseite vor dem Übergangsbogen (2026-10-03)
+- Formenbau, Winglet (mit Übergangsbogen): Mit dem Rücksprung der Nase wird das Profil am Wingletfuß dünner –
+  bisher symmetrisch zur Nasenlinie. Die Oberseite sank dadurch im waagrechten Teil ab und stieg erst im Bogen
+  wieder an (sichtbare Grube am Übergang waagrecht → senkrecht, im Beispiel rund 2 mm).
+- Jetzt läuft die Oberseite in Verlängerung der Tragfläche gerade weiter und geht stetig in den Bogen über; die
+  Dickenabnahme liegt im waagrechten Teil ganz auf der Unterseite (Außenseite der Biegung). Im Bogen klingt der
+  Ausgleich weich aus. Der gerade Teil des Winglets behält Form und Neigung, er sitzt nur um den Ausgleich
+  (wenige mm) parallel nach innen versetzt.
+- Ohne Rücksprung im waagrechten Teil / Bogenanfang ändert sich nichts. „Winglet aus Zeichnung“ ist nicht betroffen.
+- Nebenbei: Winglet ohne waagrechten Teil (Länge 0) rechnete an der Flügel-Endrippe intern mit einem ungültigen Wert.
+
+### Behoben: Winglet-Formen an der Innenseite der Biegung (2026-10-03)
+- Formenbau, Bauteil „nur Randbogen / Winglet“: War die Form an der Innenseite der Winglet-Biegung dicker als der
+  Biegeradius, faltete sich das Netz (Rückseite der oberen Negativform, Trennplatte des geteilten Urmodells) –
+  überlappende, verdrehte Flächen. Die Biegung wird jetzt mit wachsendem Abstand zur Trennfläche zunehmend
+  geglättet: Kavität, Flansch und Trennfläche bleiben exakt, die Rückseite rundet die Innenecke aus.
+  Gilt auch für den STEP-Export der Formhälften.
+- Stirnflächen bleiben eben: Die Anschlussfläche zur Tragfläche (und das Ende an der Winglet-Spitze) liegt auch an
+  der dicken Formseite genau in der Rippenebene. Die ausgerundete Rückseite läuft ungestört bis zum Anschluss und
+  wird dort an der Rippenebene abgeschnitten (die Stirnfläche ist an der Innenseite der Biegung entsprechend höher)
+  – keine Welle und keine Rille mehr am Anschluss.
+- Die zulässige Formdicke wird über die Formbreite getrennt bestimmt: eine ungünstige Flanschecke bremst nicht
+  mehr die Kavität in der Mitte aus.
+- Die rote Warnung „Biegeradius zu klein“ erscheint nur noch, wenn das Profil selbst dicker als der Radius ist.
+- Vorschau: Die Formhälften werden zum Auseinanderziehen jetzt starr verschoben (Winkelhalbierende der Biegung,
+  Spalt überall mindestens der eingestellte Wert). Vorher wurde der Versatz mitgebogen, wodurch die Hälften
+  unterschiedlich verformt aussahen und nicht mehr zusammenpassten. Der Export war davon nie betroffen.
+- Abstand der Hälften direkt in der 3D-Ansicht einstellbar (Knöpfe − / + unter „nur untere Form“, ±5 mm);
+  Klick auf den Wert schaltet auf „geschlossen“ (0 mm) und zurück.
+
+### Build: Ausgabe für Windows 7 / 32 Bit, Browser-Variante (2026-10-02)
+- Neue `BUILD_TOOL_WIN7.bat`: startet das Build-Tool mit Python 3.8 (32 Bit) und PyInstaller 5.13.2. Jede exe aus
+  diesem Fenster ist eine 32-Bit-exe für Windows 7 SP1 und neuer; die normale 64-Bit-Ausgabe bleibt unberührt.
+- Das Build-Protokoll nennt jetzt Python-Version und Bitbreite des bauenden Python.
+- Voraussetzung beim Anwender: Chrome oder Edge 109 (letzte Version für Windows 7). Noch nicht auf einem echten
+  Windows 7 getestet.
+
 ## [1.7] — 2026-09-30
 ### Neuer Reiter „Tragflächenausschnitt" (2026-09-30)
 - Eigenes Modul (Menü „Tragflächen", Funktion `ausschnitt`): ein Profil als **Ausschnitt aus einem Block** schneiden

@@ -143,11 +143,13 @@
     const SC = opt.shellCut || null;
     // „Von vorne": der Nullpunkt liegt vor der Nase — der Schalenschnitt läuft von
     // vorne durch den Block bis hinter das hintere Blockende (SC.rear).
-    function emitShellCut(sy, fr, label) {
+    function emitShellCut(sy, fr, label, st) {
       if (!SC) return;
-      // Anfahrt direkt hinter dem Block (Null-X, in Luft) auf die Schnitthöhe — kein
-      // Umweg über die Sicherheitshöhe nötig, da hinter dem Block kein Material ist.
-      em(`G1 ${ax.x}${f(0)} ${ax.y}${fy(sy.l)} ${ax.u}${f(0)} ${ax.v}${fy(sy.r)} F${maxMove.toFixed(0)} ; ${label}: ${T(front ? 'vor dem Block auf Schnitthöhe (max)' : 'hinter dem Block auf Schnitthöhe (max)')}`);
+      // Anfahrt direkt hinter dem Block (Null-X bzw. st = Maschinen-X je Turm, in Luft)
+      // auf die Schnitthöhe — kein Umweg über die Sicherheitshöhe nötig, da hinter dem
+      // Block kein Material ist.
+      const sl = st ? st.l : f(0), sr = st ? st.r : f(0);
+      em(`G1 ${ax.x}${sl} ${ax.y}${fy(sy.l)} ${ax.u}${sr} ${ax.v}${fy(sy.r)} F${maxMove.toFixed(0)} ; ${label}: ${T(front ? 'vor dem Block auf Schnitthöhe (max)' : 'hinter dem Block auf Schnitthöhe (max)')}`);
       em(`G1 ${ax.x}${fx(fr.l)} ${ax.y}${fy(sy.l)} ${ax.u}${fx(fr.r)} ${ax.v}${fy(sy.r)} F${capF(feed).toFixed(0)} ; ${label}: ${T('Horizontalschnitt durch den Block (Trapez)')}`);
       // Vor dem Block hoch auf Sicherheitshöhe und über den Block zurück auf Null-X.
       em(`G1 ${ax.x}${fx(fr.l)} ${ax.y}${f(safeY)} ${ax.u}${fx(fr.r)} ${ax.v}${f(safeY)} F${maxMove.toFixed(0)} ; ${label}: ${T(front ? 'hinter dem Block hoch (max)' : 'vor dem Block hoch (max)')}`);
@@ -583,8 +585,21 @@
       }
     }
 
+    // Schalenschnitt + „Blockschnitt vor Profilschnitt" (klassisch von hinten, ohne
+    // Anfahrweg): Oberschale nicht vorab vom Nullpunkt aus, sondern zwischen
+    // Blockschnitten und Profil — hinteres Blockende, Blockvorderkante, im vorderen
+    // Spalt runter auf Schalenhöhe, Oberschale von vorne nach hinten bis in den
+    // hinteren Spalt, dort auf den Profilanfang. Spart die Leerfahrt hoch/zurück/vor.
+    const shellMerged = !!(SC && bc && mode === 'before' && !front && !single && !AP);
+    // Nicht hinter Null-X — außer das hintere Blockende liegt selbst dahinter (Pfeilung):
+    // dann mindestens bis in dessen Schnittspalt, sonst bliebe die Schale angebunden.
+    const backX = m => Math.max(Math.min(0, m), m - SC.preR);
+    // Wendepunkt hinter dem Block: SC.preR (Einstellung, Standard 5 mm) hinter dem hinteren
+    // Blockende statt Null-X — nach der Oberschale und als Anfahrt der Unterschale.
+    const shellBack = shellMerged
+      ? { l: f(backX(mXl(bc.rear.l))), r: f(backX(mXl(bc.rear.r))) } : null;
     // Oberschale VOR dem Kernschnitt (trapezkompensiert).
-    if (SC) emitShellCut(SC.top, front ? SC.rear : SC.front, T('Oberschale (vor Kern)'));
+    if (SC && !shellMerged) emitShellCut(SC.top, front ? SC.rear : SC.front, T('Oberschale (vor Kern)'));
 
     if (front || (single && mode !== 'only')) {
       emitPasses();
@@ -604,8 +619,22 @@
       emitProfileApproach(false);
       if (mode === 'after') { goSafeAtOrigin(); emitBlockRear(); emitBlockFront(); emitReturnFromSafe(); }
     } else if (mode === 'before') {
-      // Vor dem Profil: erst vorne über den Block, dann hinten.
       goSafeAtOrigin();
+      if (shellMerged) {
+        // Erst hinteres Blockende, dann Blockvorderkante (beide voll runter und hoch).
+        emitBlockRear();
+        emitBlockFront();
+        // SC.preF (Einstellung) vor die Blockvorderkante, dort in Luft runter auf die Oberschalen-Höhe,
+        // dann die Oberschale waagrecht von vorne nach hinten bis in den hinteren Spalt.
+        const lb = T('Oberschale (vor Kern)'), SH_PRE = SC.preF;
+        const pl = f(mXl(bc.front.l) + SH_PRE), pr = f(mXl(bc.front.r) + SH_PRE);
+        em(`G1 ${ax.x}${pl} ${ax.y}${f(safeY)} ${ax.u}${pr} ${ax.v}${f(safeY)} F${maxMove.toFixed(0)} ; ${lb}: ${T('vor die Blockvorderkante (Abstand, max)')}`);
+        em(`G1 ${ax.x}${pl} ${ax.y}${fy(SC.top.l)} ${ax.u}${pr} ${ax.v}${fy(SC.top.r)} F${maxMove.toFixed(0)} ; ${lb}: ${T('vor dem Block runter auf Schnitthöhe (max)')}`);
+        em(`G1 ${ax.x}${shellBack.l} ${ax.y}${fy(SC.top.l)} ${ax.u}${shellBack.r} ${ax.v}${fy(SC.top.r)} F${capF(feed).toFixed(0)} ; ${lb}: ${T('Horizontalschnitt von vorne nach hinten bis hinter das hintere Blockende (Trapez)')}`);
+        // Hinter dem Block (in Luft) runter auf die Höhe des Profilanfangs.
+        em(`G1 ${ax.x}${shellBack.l} ${ax.y}${fy(L[0].y)} ${ax.u}${shellBack.r} ${ax.v}${fy(R[0].y)} F${maxMove.toFixed(0)} ; ` + T('hinter dem Block runter auf Höhe des Profilanfangs (max)'));
+      } else {
+      // Vor dem Profil: erst vorne über den Block, dann hinten.
       emitBlockFront();
       // Hinteres Blockende schneiden, danach NICHT auf Sicherheitshöhe zurück:
       // aus der Tiefe direkt bis auf die Höhe der oberen EL-Verlängerung
@@ -616,6 +645,7 @@
       // Zuerst senkrecht (am hinteren Blockende) auf die Höhe des Profilanfangs,
       // dann horizontal an den Profilanfang — nicht schräg.
       em(`G1 ${ax.x}${fx(bc.rear.l)} ${ax.y}${fy(L[0].y)} ${ax.u}${fx(bc.rear.r)} ${ax.v}${fy(R[0].y)} F${feed.toFixed(0)} ; vertikal hoch auf Höhe des Profilanfangs (im Blockschnitt, Schnittvorschub)`);
+      }
       // Der Draht steht im Schnittspalt des hinteren Blockendes: liegt der Profilanfang
       // im Block, ist die ganze Fahrt dorthin im Material -> Schnittvorschub.
       if (leadThrough(L[0], R[0], 0))
@@ -627,7 +657,12 @@
       // bis zum Null-X, dann vertikal nach unten auf Null.
       if (leadThrough(L[last], R[last], last))
         em(`G1 ${ax.x}${faceStop(LF.l, L[last])} ${ax.y}${fy(L[last].y)} ${ax.u}${faceStop(LF.r, R[last])} ${ax.v}${fy(R[last].y)} F${capF(feed).toFixed(0)} ; ` + T('horizontal durch den Abstand hinten zum hinteren Blockende (Schnittvorschub)'));
+      if (shellMerged)   // nur bis SC.preR hinter das hintere Blockende (s. backX)
+        em(`G1 ${ax.x}${shellBack.l} ${ax.y}${fy(L[last].y)} ${ax.u}${shellBack.r} ${ax.v}${fy(R[last].y)} F${airF.toFixed(0)} ; ` + T('horizontal hinter das hintere Blockende (Abstand, außerhalb Block, max)'));
+      else
       em(`G1 ${ax.x}${f(0)} ${ax.y}${fy(L[last].y)} ${ax.u}${f(0)} ${ax.v}${fy(R[last].y)} F${airF.toFixed(0)} ; horizontal zum Null-X (außerhalb Block, max)`);
+      // Mit Schalenschnitt geht es von hier direkt auf die Unterschalen-Höhe.
+      if (!SC)
       em(`G1 ${ax.x}${f(0)} ${ax.y}${f(0)} ${ax.u}${f(0)} ${ax.v}${f(0)} F${airF.toFixed(0)} ; vertikal nach unten auf Null (außerhalb Block, max)`);
     } else if (mode === 'wrap' && bc && stackN === 1) {
       // Blockschnitt während Profilschnitt (wenig Leerfahrt): hinteres Blockende ->
@@ -677,7 +712,10 @@
     }
     // Unterschale NACH dem Kernschnitt (trapezkompensiert), dann zurück auf Null.
     if (SC) {
-      emitShellCut(SC.bottom, front ? SC.rear : SC.front, T('Unterschale (nach Kern)'));
+      // Zusammengelegt: Unterschale um den Abstand vor dem Block (preF) über die
+      // Blockvorderkante hinaus verlängern (Profil-X kleiner = weiter vorne).
+      const frB = shellMerged ? { l: SC.front.l - SC.preF, r: SC.front.r - SC.preF } : (front ? SC.rear : SC.front);
+      emitShellCut(SC.bottom, frB, T('Unterschale (nach Kern)'), shellBack);
       em(`G1 ${ax.x}${f(0)} ${ax.y}${f(0)} ${ax.u}${f(0)} ${ax.v}${f(0)} F${maxMove.toFixed(0)} ; zurück auf den Nullpunkt (max)`);
     }
     if (opt.wireHeat != null) em('M5 ; Drahtheizung AUS');

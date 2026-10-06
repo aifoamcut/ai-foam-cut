@@ -32,12 +32,15 @@
 
   const LS_KEY = 'hotwing.foildb.v1';
   const ENDPOINT = '/__foildb__';
+  const KFM_NAME = /^\s*(KFm|Knickplatte|Platte)/i;   // Namen aus dem KFm-Gestalter (kfm.js)
   const COLORS = ['#4aa3ff', '#ff8c42', '#57d38c', '#e85d9b', '#ffd166', '#9b7bff', '#37c9d6', '#c0c0c0'];
 
   // ==================================================================
   //  1. Datenbank + Persistenz
   // ==================================================================
   // profiles: {id, name, pts:[[x,y]…], key, file, src, added, groups:[gid…], note}
+  // keepTE (optional): Stufen-/Plattenprofil — die dicke Endleiste gehört zur Form und
+  //   wird beim Einsetzen nicht geschlossen (closeLoadedTE in profedit.js achtet darauf).
   // groups:   {id, name}
   let db = { v: 1, autoAdd: true, profiles: [], groups: [] };
   let fileOk = false;        // Endpunkt (Datei neben der exe) erreichbar
@@ -47,7 +50,7 @@
 
   const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const clonePts = pts => pts.map(q => [+(+q[0]).toFixed(6), +(+q[1]).toFixed(6)]);
-  const toProf = (rec) => { const p = rec.pts.map(q => ({ x: q[0], y: q[1] })); p.name = rec.name; return p; };
+  const toProf = (rec) => { const p = rec.pts.map(q => ({ x: q[0], y: q[1] })); p.name = rec.name; if (rec.keepTE) p.keepTE = true; return p; };
 
   // Kennung einer Kontur: unabhängig von Punktzahl/-verteilung (Resampling auf
   // feste Punkte, 4 Nachkommastellen) — gleiche Profile aus verschiedenen
@@ -79,6 +82,7 @@
         groups: (Array.isArray(p.groups) ? p.groups : []).map(String).filter(g => gids.has(g)),
         note: String(p.note || '')
       });
+      if (p.keepTE) out.profiles[out.profiles.length - 1].keepTE = true;
     });
     out.profiles.forEach(p => { if (!p.key) p.key = keyOf(toProf(p)); });
     return out;
@@ -145,7 +149,7 @@
   const profile = id => { const r = get(id); return r ? toProf(r) : null; };
   const groupName = gid => { const g = db.groups.find(x => x.id === gid); return g ? g.name : ''; };
 
-  // Profil aufnehmen. opts: {name, file, src, groups}. Gleiche Kontur → vorhandener
+  // Profil aufnehmen. opts: {name, file, src, groups, keepTE}. Gleiche Kontur → vorhandener
   // Eintrag (Name/Datei werden ergänzt, falls dort nur der Platzhalter steht).
   function add(prof, opts) {
     opts = opts || {};
@@ -157,10 +161,14 @@
     let name = String(opts.name || prof.name || '').trim();
     if (generic(name) && opts.file) name = String(opts.file).replace(/\.[^.]+$/, '');
     if (!name) name = 'Profil';
-    const hit = db.profiles.find(x => x.key === key);
+    // Gleiche Kontur: gleiche Kennung — oder (Stufenprofile: die Kennung kippt an den
+    // senkrechten Stufen schon durch Rundung der .dat) punktweise gleiche Koordinaten.
+    const hit = db.profiles.find(x => x.key === key)
+      || db.profiles.find(x => x.pts.length === p.length && x.pts.every((q, i) => Math.abs(q[0] - p[i].x) < 2e-5 && Math.abs(q[1] - p[i].y) < 2e-5));
     if (hit) {
       if (generic(hit.name) && !generic(name)) hit.name = name;
       if (!hit.file && opts.file) hit.file = String(opts.file);
+      if (opts.keepTE) hit.keepTE = true;
       (opts.groups || []).forEach(g => { if (hit.groups.indexOf(g) < 0) hit.groups.push(g); });
       save();
       return hit.id;
@@ -168,6 +176,7 @@
     const rec = { id: uid('p'), name, pts: clonePts(p.map(q => [q.x, q.y])), key,
       file: String(opts.file || ''), src: String(opts.src || 'load'), added: Date.now(),
       groups: (opts.groups || []).slice(), note: '' };
+    if (opts.keepTE) rec.keepTE = true;
     db.profiles.push(rec);
     save(); refreshPickers();
     if (state.activeTab === 'foildb') draw();
@@ -211,7 +220,12 @@
       const orig = Airfoil[fn]; if (typeof orig !== 'function') return;
       Airfoil[fn] = function (text) {
         const p = orig.apply(this, arguments);
-        if (db.autoAdd) { try { add(p, { src: fn === 'parseBez' ? 'bez' : 'dat' }); } catch (e) {} }
+        // Stufen-/Plattenprofile aus dem Gestalter (auch als .dat von einem anderen
+        // Rechner): dicke Endleiste beim Einsetzen stehen lassen.
+        const kfm = KFM_NAME.test(String(p && p.name || ''));
+        if (db.autoAdd) { try { const r = get(add(p, { src: fn === 'parseBez' ? 'bez' : 'dat', keepTE: kfm })); if (r && r.keepTE) p.keepTE = true; } catch (e) {} }
+        else if (kfm) p.keepTE = true;
+        else { try { const k = keyOf(Airfoil.normalize(p.map(q => ({ x: q.x, y: q.y })))); if (db.profiles.some(x => x.keepTE && x.key === k)) p.keepTE = true; } catch (e) {} }
         return p;
       };
     });
@@ -254,7 +268,7 @@
   // ==================================================================
   //  3. Ansicht (Reiter)
   // ==================================================================
-  const U = { sel: null, cmp: new Set(), filter: '', group: 'all', sort: 'name', edit: null,
+  const U = { sel: null, cmp: new Set(), filter: '', group: 'all', sort: 'name', edit: null, kfm: null,
     view: { zoom: 1, px: 0, py: 0 }, drag: null };
   let wired = false;
 
@@ -309,8 +323,8 @@
     }));
   }
   function select(id) {
-    if (U.sel === id) return;
-    U.sel = id; U.edit = null;
+    if (U.sel === id && !U.kfm) return;
+    U.sel = id; U.edit = null; U.kfm = null;
     drawList(); drawCanvas(); drawDetail();
   }
 
@@ -328,7 +342,8 @@
     const items = [];
     [...U.cmp].forEach((id, i) => { const r = get(id); if (r) items.push({ pts: toProf(r), col: COLORS[i % COLORS.length], name: r.name, w: 1.4 }); });
     if (U.sel && !U.cmp.has(U.sel)) { const r = get(U.sel); if (r) items.push({ pts: toProf(r), col: txtCol, name: r.name, w: 1.6 }); }
-    if (U.edit && U.edit.preview) items.push({ pts: U.edit.preview, col: accCol, name: T('Vorschau (bearbeitet)'), w: 1.4, dash: [5, 4] });
+    if (U.kfm && U.kfm.preview) items.push({ pts: U.kfm.preview, col: accCol, name: U.kfm.preview.name + ' — ' + T('Entwurf'), w: 1.8 });
+    else if (U.edit && U.edit.preview) items.push({ pts: U.edit.preview, col: accCol, name: T('Vorschau (bearbeitet)'), w: 1.4, dash: [5, 4] });
     const pad = 30, v = U.view;
     const sc = (W - 2 * pad) * v.zoom, ox = pad + v.px, oy = H / 2 + v.py;
     const X = x => ox + x * sc, Y = y => oy - y * sc;
@@ -392,7 +407,7 @@
       [T('Max. Wölbung'), r => pct(metrics(r).cam, 2)], [T('Wölbungsrücklage'), r => pct(metrics(r).camX, 0)],
       [T('Endleistendicke'), r => pct(metrics(r).te, 2)], [T('Nasenradius'), r => pct(metrics(r).leR, 2)],
       [T('Punkte'), r => String(r.pts.length)], [T('Gruppen'), r => r.groups.map(groupName).join(', ') || '—'],
-      [T('Quelle'), r => esc(r.file || (r.src === 'naca' ? 'NACA' : r.src === 'wing' ? T('Tragfläche') : T('geladen')))]
+      [T('Quelle'), r => esc(r.file || (r.src === 'kfm' ? T('KFm-Gestalter') : r.src === 'naca' ? 'NACA' : r.src === 'wing' ? T('Tragfläche') : T('geladen')))]
     ];
     box.innerHTML = '<table class="fdb-tbl"><thead><tr><th></th>' + recs.map(r => {
       const col = cmpColor(r.id) || 'var(--txt)';
@@ -403,6 +418,7 @@
   // ---- Detail / Bearbeitung ---------------------------------------------------
   function drawDetail() {
     const box = $('fdbDetail'); if (!box) return;
+    if (U.kfm) { drawKfm(box); drawTable(); return; }
     const r = get(U.sel);
     if (!r) { box.innerHTML = '<div class="fdb-hint">' + T('Kein Profil gewählt.') + '</div>'; drawTable(); return; }
     const m = metrics(r);
@@ -462,6 +478,7 @@
       const b2 = mk('button', null, T('Als Kopie speichern')); b2.title = T('Bearbeitung als neues Profil anlegen, das Original bleibt');
       b2.onclick = () => { const p = computeEdit(E); if (!p) return; const nm = window.prompt(T('Name des neuen Profils:'), r.name + ' mod'); if (nm == null) return;
         const rec = { id: uid('p'), name: nm.trim() || (r.name + ' mod'), pts: clonePts(p.map(q => [q.x, q.y])), key: keyOf(p), file: '', src: 'edit', added: Date.now(), groups: r.groups.slice(), note: T('abgeleitet von ') + r.name };
+        if (r.keepTE) rec.keepTE = true;
         db.profiles.push(rec); save(); U.edit = null; select(rec.id); };
       const b3 = mk('button', null, T('Zurücksetzen')); b3.onclick = () => { U.edit = null; drawDetail(); drawCanvas(); };
       row.appendChild(b1); row.appendChild(b2); row.appendChild(b3); box.appendChild(row); }
@@ -492,6 +509,108 @@
       bx.onclick = () => { if (!window.confirm(T('Profil aus der Datenbank löschen?') + '\n' + r.name)) return; remove(r.id); drawList(); drawDetail(); drawCanvas(); refreshPickers(); };
       row2.appendChild(bd); row2.appendChild(bx); box.appendChild(row2); }
     drawTable();
+  }
+  // ---- Gestalter für Stufenprofile (KFm) und Platten-/Knickprofile -------------
+  // Rechenkern in kfm.js; hier nur die Eingabemaske (ersetzt die Detailspalte,
+  // solange U.kfm gesetzt ist) — der Entwurf läuft live im Vergleichsbild mit.
+  let kfmLast = null;                // zuletzt geschlossener Entwurf (wieder öffnen)
+  function openKfm() {
+    if (!window.KFm) { window.alert(T('Der KFm-Gestalter (kfm.js) fehlt in diesem Build.')); return; }
+    if (!U.kfm) U.kfm = kfmLast || { P: KFm.defaults('kfm2'), name: '', chord: 200, preview: null };
+    kfmUpdate(); drawDetail();
+  }
+  function kfmProfile() {
+    const K = U.kfm; if (!K) return null;
+    try {
+      const p = Airfoil.normalize(KFm.build(K.P));
+      p.name = K.name.trim() || KFm.autoName(K.P);
+      return p;
+    } catch (e) { return null; }
+  }
+  function kfmUpdate() { if (!U.kfm) return; U.kfm.preview = kfmProfile(); drawCanvas(); }
+  function kfmStore() {
+    const p = kfmProfile(); if (!p) return null;
+    const r = get(add(p, { name: p.name, src: 'kfm', keepTE: true }));
+    if (r && !r.note) { r.note = T('Erzeugt im KFm-Gestalter'); save(); }
+    return r;
+  }
+  function drawKfm(box) {
+    const K = U.kfm, P = K.P;
+    box.textContent = '';
+    const mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const field = (label, el, unit) => { const f = mk('div', 'fdb-field'); f.appendChild(mk('label', null, T(label))); f.appendChild(el); if (unit) f.appendChild(mk('span', 'u', unit)); box.appendChild(f); return el; };
+    const redo = () => { drawKfm(box); kfmUpdate(); };
+    const num = (val, step, min, max, set) => { const i = document.createElement('input'); i.type = 'number'; i.value = val; i.step = step; i.min = min; i.max = max;
+      i.onchange = () => { const v = +i.value; if (!isFinite(v)) return; const c = Math.max(min, Math.min(max, v)); if (c !== v) i.value = c; set(c); showInfo(); kfmUpdate(); }; return i; };
+    const sel = (opts, val, set) => { const s = document.createElement('select');
+      opts.forEach(o => { const e = document.createElement('option'); e.value = o[0]; e.textContent = T(o[1]); s.appendChild(e); });
+      s.value = val; s.onchange = () => { set(s.value); redo(); }; return s; };
+    const info = mk('div', 'fdb-hint');
+    const nameInp = document.createElement('input');
+    const showInfo = () => {
+      const I = KFm.info(K.P), mm = v => (v * K.chord).toFixed(1) + ' mm';
+      info.textContent = T('Gesamtdicke vorn: ') + pct(I.total) + ' · ' + T('Grundplatte: ') + pct(I.base) + ' · ' + T('Endleiste: ') + pct(I.te)
+        + ' — ' + T('bei Sehne ') + K.chord + ' mm: ' + mm(I.total) + ' / ' + mm(I.base) + ' / ' + mm(I.te);
+      nameInp.placeholder = KFm.autoName(K.P);
+    };
+
+    box.appendChild(mk('div', 'gh', T('Stufenprofil (KFm) / Knickprofil gestalten')));
+    box.appendChild(mk('div', 'fdb-hint', T('Aufbau wie beim Bauen aus Platten: Grundplatte über die ganze Sehne, darauf oder darunter Lagen von der Nase bis zur Stufe. Maße in % der Sehne. Der Entwurf erscheint oben im Bild.')));
+    field('Vorlage', sel(KFm.PRESETS.map(p => [p.id, p.label]), P.preset, v => { K.P = Object.assign(KFm.defaults(v), { nose: P.nose, noseLen: P.noseLen, teLen: P.teLen, teThick: P.teThick }); }));
+    nameInp.type = 'text'; nameInp.value = K.name; nameInp.onchange = () => { K.name = nameInp.value; kfmUpdate(); };
+    nameInp.title = T('Leer = Name aus den Maßen');
+    field('Name', nameInp);
+    field('Dicke der Grundplatte', num(P.t0, 0.1, 0.3, 30, v => { P.t0 = v; }), '%');
+    field('Nase', sel([['round', 'rund (Halbkreis)'], ['ellipse', 'elliptisch'], ['wedge', 'spitz (Keil)']], P.nose, v => { P.nose = v; }));
+    if (P.nose !== 'round') field('Nasenlänge', num(P.noseLen, 0.5, 0.2, 40, v => { P.noseLen = v; }), '%');
+
+    // Stufen
+    box.appendChild(mk('div', 'gh', T('Stufen')));
+    if (!P.steps.length) box.appendChild(mk('div', 'fdb-hint', T('Keine Stufe — ebene Platte.')));
+    P.steps.forEach((s, i) => {
+      const row = mk('div', 'fdb-btns'); row.style.alignItems = 'center';
+      const sd = sel([['top', 'oben'], ['bot', 'unten']], s.side, v => { s.side = v; });
+      const a = num(s.pos, 1, 5, 95, v => { s.pos = v; }); a.title = T('Lage der Stufe von der Nase (% der Sehne)'); a.style.width = '64px';
+      const h = num(s.h, 0.1, 0.1, 30, v => { s.h = v; }); h.title = T('Stufenhöhe = Dicke der Lage (% der Sehne)'); h.style.width = '64px';
+      const x = mk('button', null, '✕'); x.title = T('Stufe entfernen'); x.onclick = () => { P.steps.splice(i, 1); redo(); };
+      row.appendChild(sd); row.appendChild(mk('span', 'fdb-hint', T('bei'))); row.appendChild(a); row.appendChild(mk('span', 'fdb-hint', '% · ' + T('Höhe'))); row.appendChild(h); row.appendChild(mk('span', 'fdb-hint', '%')); row.appendChild(x);
+      box.appendChild(row);
+    });
+    { const row = mk('div', 'fdb-btns'); const b = mk('button', null, T('+ Stufe'));
+      b.onclick = () => { P.steps.push({ side: 'top', pos: 50, h: P.t0 }); redo(); };
+      b.disabled = P.steps.length >= 6; row.appendChild(b); box.appendChild(row); }
+
+    // Knicke
+    box.appendChild(mk('div', 'gh', T('Knicke (Knickplatte)')));
+    P.kinks.forEach((k, i) => {
+      const row = mk('div', 'fdb-btns'); row.style.alignItems = 'center';
+      const a = num(k.pos, 1, 1, 99, v => { k.pos = v; }); a.title = T('Lage des Knicks von der Nase (% der Sehne)'); a.style.width = '64px';
+      const w = num(k.ang, 0.5, -45, 45, v => { k.ang = v; }); w.title = T('Knickwinkel: positiv = hinterer Teil nach unten (Wölbung), negativ = nach oben (S-Schlag)'); w.style.width = '64px';
+      const x = mk('button', null, '✕'); x.title = T('Knick entfernen'); x.onclick = () => { P.kinks.splice(i, 1); redo(); };
+      row.appendChild(mk('span', 'fdb-hint', T('bei'))); row.appendChild(a); row.appendChild(mk('span', 'fdb-hint', '% · ' + T('Winkel'))); row.appendChild(w); row.appendChild(mk('span', 'fdb-hint', '°')); row.appendChild(x);
+      box.appendChild(row);
+    });
+    { const row = mk('div', 'fdb-btns'); const b = mk('button', null, T('+ Knick'));
+      b.onclick = () => { P.kinks.push({ pos: P.kinks.length ? 75 : 30, ang: P.kinks.length ? -3 : 5 }); redo(); };
+      b.disabled = P.kinks.length >= 4; row.appendChild(b); box.appendChild(row); }
+
+    // Endleiste
+    box.appendChild(mk('div', 'gh', T('Endleiste')));
+    field('Anschärfen über', num(P.teLen, 1, 0, 60, v => { P.teLen = v; }), '%').title = T('Länge, über die die Platte zur Endleiste hin dünner wird (0 = volle Plattendicke bis hinten)');
+    field('Dicke an der Endleiste', num(P.teThick, 0.1, 0, 30, v => { P.teThick = v; }), '%').title = T('Gilt nur mit Anschärfen > 0');
+    field('Sehne für die mm-Anzeige', num(K.chord, 10, 10, 5000, v => { K.chord = v; }), 'mm');
+    box.appendChild(info); showInfo();
+
+    // Speichern
+    box.appendChild(mk('div', 'gh', T('Speichern')));
+    { const row = mk('div', 'fdb-btns');
+      const b1 = mk('button', 'primary', T('In Datenbank speichern')); b1.title = T('Profil in die Profildatenbank legen — sofort im Tragflächendesigner und in der Auslegung wählbar');
+      b1.onclick = () => { const r = kfmStore(); if (!r) return; toast(T('Profil gespeichert: ') + r.name); kfmLast = U.kfm; select(r.id); };
+      const b2 = mk('button', null, T('.dat speichern…')); b2.title = T('Als .dat-Datei speichern (Selig-Format) und zugleich in die Datenbank legen');
+      b2.onclick = () => { const r = kfmStore(); if (!r) return; exportDat(r); drawList(); };
+      const b3 = mk('button', null, T('Schließen')); b3.onclick = () => { kfmLast = U.kfm; kfmLast.preview = null; U.kfm = null; drawDetail(); drawCanvas(); };
+      row.appendChild(b1); row.appendChild(b2); row.appendChild(b3); box.appendChild(row); }
+    box.appendChild(mk('div', 'fdb-hint', T('Die Stufen bleiben beim Einsetzen als Ecken erhalten; die dicke Endleiste wird bei diesen Profilen nicht geschlossen. Für scharfe Stufen im Schnitt die Punktzahl des Profils eher hoch wählen (200 und mehr).')));
   }
   // Polaren-Ansicht des Aerodynamik-Reiters über diesem Reiter öffnen — mit dem
   // gewählten Profil und allen zum Vergleich angehakten.
@@ -579,6 +698,7 @@
       const p = Airfoil.naca4(code.trim(), 120); const id = add(p, { name: 'NACA ' + code.trim(), src: 'naca' });
       if (id) { select(id); draw(); }
     });
+    if (window.KFm) btn('KFm-/Knickprofil gestalten…', openKfm, 'Stufenprofile (KFm1–KFm4, freie Stufen) und Platten-/Knickprofile aus Maßen aufbauen, in der Datenbank und als .dat speichern');
     btn('Profile der aktiven Tragfläche aufnehmen', () => {
       let n = 0;
       const put = (p, nm) => { if (p && p.length > 4) { const id = add(p, { name: p.name || nm, src: 'wing' }); if (id) n++; } };
@@ -702,6 +822,6 @@
   load();
 
   Object.assign(App, { foildbSidebar, foildbPickerRow: pickerRow });
-  window.FoilDB = { show, refresh: draw, add, remove, get, list, groups, profile, groupName, addGroup, fillSelect, pickerRow, metrics: metricsOf, applyToTarget, select,
+  window.FoilDB = { show, refresh: draw, add, remove, get, list, groups, profile, groupName, addGroup, fillSelect, pickerRow, metrics: metricsOf, applyToTarget, select, openKfm,
     _test: { db: () => db, keyOf, merge, sane } };
 })();

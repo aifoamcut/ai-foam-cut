@@ -265,17 +265,41 @@
       return crPoint(P0, P1, P2, P3, t0, t1, t2, t3, s);
     };
 
+    // Scharfe Ecken der Vorlage (Stufenprofile, KFm): Knickwinkel > 45°. Der
+    // jeweils nächstliegende Abtastpunkt wird genau auf die Ecke gesetzt, sonst
+    // schneidet die Cosinus-Verteilung die Ecke ab (Stufe wird zur Schräge).
+    // Punktzahl und LE-Index bleiben unverändert.
+    const corners = [];
+    for (let i = 1; i < m - 1; i++) {
+      const ax = P[i].x - P[i - 1].x, ay = P[i].y - P[i - 1].y, bx = P[i + 1].x - P[i].x, by = P[i + 1].y - P[i].y;
+      const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+      if (la > 0 && lb > 0 && (ax * bx + ay * by) / (la * lb) < 0.7071) corners.push(knots[i]);
+    }
+    const snap = (S, lo, hi) => {      // S: aufsteigende Bogenlängen einer Seite
+      if (corners.length > 24) return S;
+      let last = 0;
+      corners.forEach(sc => {
+        if (sc <= lo + 1e-9 || sc >= hi - 1e-9) return;
+        let k = 1;
+        while (k < S.length - 2 && Math.abs(S[k + 1] - sc) < Math.abs(S[k] - sc)) k++;
+        if (k <= last) k = last + 1;
+        if (k > S.length - 2) return;
+        S[k] = sc; last = k;
+      });
+      return S;
+    };
+
     const Nu = Math.ceil(n / 2);       // Punkte TE->LE (inkl. beider Enden)
     const Nl = n - Nu + 1;             // Punkte LE->TE (LE geteilt)
     const out = [];
-    for (let i = 0; i < Nu; i++) {     // Oberseite: TE (s=0) .. LE (s=sLE)
-      const c = (1 - Math.cos(Math.PI * i / (Nu - 1))) / 2;
-      out.push(evalAt(c * sLE));
-    }
-    for (let j = 1; j < Nl; j++) {     // Unterseite: LE .. TE (s=T)
-      const c = (1 - Math.cos(Math.PI * j / (Nl - 1))) / 2;
-      out.push(evalAt(sLE + c * (T - sLE)));
-    }
+    const SU = [], SL = [];
+    for (let i = 0; i < Nu; i++)       // Oberseite: TE (s=0) .. LE (s=sLE)
+      SU.push((1 - Math.cos(Math.PI * i / (Nu - 1))) / 2 * sLE);
+    for (let j = 0; j < Nl; j++)       // Unterseite: LE .. TE (s=T)
+      SL.push(sLE + (1 - Math.cos(Math.PI * j / (Nl - 1))) / 2 * (T - sLE));
+    if (corners.length) { snap(SU, 0, sLE); snap(SL, sLE, T); }
+    for (let i = 0; i < Nu; i++) out.push(evalAt(SU[i]));
+    for (let j = 1; j < Nl; j++) out.push(evalAt(SL[j]));
     out.name = pts.name;
     return out;                         // out.length === n, LE bei Index Nu-1
   }

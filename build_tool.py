@@ -379,7 +379,10 @@ def run_build(cfg, log, cancel=None):
         cmd += ["--add-data", "%s;." % os.path.join(stage, f)]
     cmd.append(os.path.join(stage, ENTRY))
 
-    log("PyInstaller laeuft ...")
+    # Die exe erbt Bitbreite und Mindest-Windows vom bauenden Python
+    # (BUILD_TOOL_WIN7.bat startet das Tool mit Python 3.8 / 32 Bit).
+    log("PyInstaller laeuft ... (Python %d.%d, %d Bit)"
+        % (sys.version_info[0], sys.version_info[1], 64 if sys.maxsize > 2**32 else 32))
     proc = subprocess.Popen(cmd, cwd=stage, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace")
     for line in proc.stdout:

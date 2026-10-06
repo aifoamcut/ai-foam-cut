@@ -47,6 +47,9 @@
   const CAM0 = Object.assign({}, cam);
   let canvas = null, ctx = null, W = 0, H = 0;
   let center = [0, 0, 0], radius = 100;
+  // Drehpunkt per Mausrad-Doppelklick (Weltpunkt; null = Modellmitte). Ist er
+  // gesetzt, ist center = pivot und cam.px/py so verschoben, dass nichts springt.
+  let pivot = null;
   let dragging = false, dragMode = '', lastX = 0, lastY = 0, redrawTimer = 0;
 
   function col(name, fb) {
@@ -240,6 +243,52 @@
     center = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
     radius = 0.5 * Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) || 100;
     Object.assign(cam, CAM0);
+    pivot = null;
+  }
+  // Drehpunkt verwerfen → wieder um die Modellmitte drehen (Ansicht-Reset).
+  function clearPivot() {
+    pivot = null;
+    const b = M.bbox;
+    if (b) center = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
+  }
+  // Drehpunkt auf den Weltpunkt pt setzen, ohne dass das Bild springt:
+  // scr(p) = W/2 + px + s·rot(p − center). Mit center' = pt und
+  // px' = px + s·rot(pt − center).x, py' = py − s·rot(pt − center).y bleibt
+  // jeder Bildpunkt gleich (rot ist linear) — pt liegt danach bei (W/2+px', H/2+py').
+  function setPivotAt(pt) {
+    const s = 0.42 * Math.min(W, H) / radius * cam.zoom;
+    const r = rot([pt[0] - center[0], pt[1] - center[1], pt[2] - center[2]]);
+    cam.px += s * r[0]; cam.py -= s * r[1];
+    center = [pt[0], pt[1], pt[2]];
+    pivot = center.slice();
+  }
+  // Weltpunkt unter dem Cursor (mx,my in Canvas-CSS-Pixeln): vorderstes Dreieck
+  // (baryzentrisch, Tiefe interpoliert); sonst nächster Netzpunkt (ViewCube.pickNear).
+  function pick3d(mx, my) {
+    const sources = drawSources(); if (!sources.length) return null;
+    let best = null, bd = Infinity;
+    for (const src of sources) {
+      const v = src.verts;
+      for (let i = 0; i + 8 < v.length; i += 9) {
+        const a = scr(v[i], v[i + 1], v[i + 2]), b = scr(v[i + 3], v[i + 4], v[i + 5]), c = scr(v[i + 6], v[i + 7], v[i + 8]);
+        if (mx < Math.min(a.x, b.x, c.x) || mx > Math.max(a.x, b.x, c.x) || my < Math.min(a.y, b.y, c.y) || my > Math.max(a.y, b.y, c.y)) continue;
+        const den = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+        if (Math.abs(den) < 1e-12) continue;
+        const l1 = ((b.y - c.y) * (mx - c.x) + (c.x - b.x) * (my - c.y)) / den;
+        const l2 = ((c.y - a.y) * (mx - c.x) + (a.x - c.x) * (my - c.y)) / den;
+        const l3 = 1 - l1 - l2;
+        if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
+        const d = l1 * a.d + l2 * b.d + l3 * c.d;   // orthografisch → linear interpolierbar
+        if (d < bd) {
+          bd = d;
+          best = [l1 * v[i] + l2 * v[i + 3] + l3 * v[i + 6], l1 * v[i + 1] + l2 * v[i + 4] + l3 * v[i + 7], l1 * v[i + 2] + l2 * v[i + 5] + l3 * v[i + 8]];
+        }
+      }
+    }
+    if (best || !(window.ViewCube && ViewCube.pickNear)) return best;
+    return ViewCube.pickNear(mx, my, cb => {
+      for (const src of sources) { const v = src.verts; for (let i = 0; i + 2 < v.length; i += 3) cb(v[i], v[i + 1], v[i + 2]); }
+    }, (x, y, z) => scr(x, y, z));
   }
 
   // Grenzen entlang der Achse: [min, sortierte Ebenen, max]
@@ -1718,6 +1767,11 @@
   }
   function exportAll() {
     if (!M.segs) return;
+    // Eine gemeinsame Vorschau aller Segmente, dann ein Ordner-Dialog (stlpreview.js)
+    if (window.App && App.stlSaveMany) {
+      const list = []; M.segs.forEach((s, i) => { if (s.ntri) list.push({ name: baseName() + '_seg' + (i + 1) + '.stl', data: toBinarySTL(s.verts) }); });
+      App.stlSaveMany(list, 'svStl'); return;
+    }
     M.segs.forEach((s, i) => { if (s.ntri) exportSegment(i); });
   }
 
@@ -1931,6 +1985,7 @@
       if (M.showPlanes) drawPlanes();
       if (!dragging) drawSections();
       drawAxisBadge();
+      drawPivotMark();
       return;
     }
     drawBBox();
@@ -1949,6 +2004,13 @@
     if (!dragging) drawSections();     // Schnittspuren auf den Ebenen
     drawAxisBadge();
     if (step > 1) drawSimpleNote(step);
+    drawPivotMark();
+  }
+  // Gelbes Fadenkreuz am gesetzten Drehpunkt (nur 3D-Ansicht).
+  function drawPivotMark() {
+    if (!pivot || !(window.ViewCube && ViewCube.drawPivot)) return;
+    const q = scr(pivot[0], pivot[1], pivot[2]);
+    ViewCube.drawPivot(ctx, q.x, q.y);
   }
   // Konturlinien (plines) der Modell-Schnitte mit jeder Ebene zeichnen.
   function drawSections() {
@@ -2540,8 +2602,17 @@
   // ---------- Interaktion ----------------------------------------------
   let pairMoved = false;
   function bindCanvas() {
-    if (window.ViewCube) ViewCube.attach({ canvas: () => canvas, get: () => cam, set: (y, p) => { cam.yaw = y; cam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [-0.01, -0.01],
+    if (window.ViewCube) ViewCube.attach({ reset: () => { if (M.view === 'profiles' || M.view === 'pairs' || M.view === 'plate') resetProfileView(); else if (M.bbox) frameCamera(); else { Object.assign(cam, CAM0); pivot = null; } }, canvas: () => canvas, get: () => cam, set: (y, p) => { cam.yaw = y; cam.pitch = p; }, redraw: () => draw(), rot: ViewCube.ROT_STD, k: [-0.01, -0.01],
       labels: { '+x': '+X', '-x': '−X', '+y': 'Oben', '-y': 'Unten', '+z': 'Vorne', '-z': 'Hinten' } });
+    // Mausrad-Doppelklick in der 3D-Ansicht = neuer Drehpunkt (Punkt unter dem Cursor).
+    // Nur bei Treffer wird der zweite mousedown verschluckt; sonst normales Verhalten.
+    if (window.ViewCube && ViewCube.midDbl) ViewCube.midDbl(canvas, (x, y) => {
+      if (M.view === 'profiles' || M.view === 'pairs' || M.view === 'plate' || !M.verts) return false;
+      const pt = pick3d(x, y); if (!pt) return false;
+      dragging = false;
+      setPivotAt(pt); draw();
+      return true;
+    });
     canvas.addEventListener('mousedown', e => {
       // Segmentpaar-Ansicht: Punkt ziehen (Bearbeiten) hat Vorrang vor Verschieben.
       if (M.view === 'pairs') {
@@ -2656,6 +2727,7 @@
     else if (which === 'front') { cam.yaw = 0; cam.pitch = 0; }
     else if (which === 'side') { cam.yaw = Math.PI / 2; cam.pitch = 0; }
     else { cam.yaw = CAM0.yaw; cam.pitch = CAM0.pitch; }
+    clearPivot();
     cam.px = 0; cam.py = 0; draw();
   }
 
@@ -2733,7 +2805,7 @@
     // Modell komplett verwerfen (Neu-Projekt): Netz + Ebenen + Caches leeren,
     // Ansicht zurücksetzen. Zeichnet die leere Vorschau.
     reset() {
-      M.verts = null; M.ntri = 0; M.bbox = null; M.name = '';
+      M.verts = null; M.ntri = 0; M.bbox = null; M.name = ''; pivot = null;
       M.planes = []; M.axis = 0; M.sel = 'all';
       M.segs = null; M.sections = null; M.profiles = null;
       M.multiCache = null; M.triIndex = null; M.cleanCache = null; M.gapTol = null;

@@ -24,7 +24,8 @@
 
 
   /* Reiter „Blockzurichten": 3D-Vorschau + G-Code (zwei kerf-komp. Vertikalschnitte). */
-  const bcam = { yaw: -0.62, pitch: 0.45, zoom: 1, drag: null };
+  // pivot = Drehpunkt (Weltpunkt, Mausrad-Doppelklick) oder null = Bildmitte der Box; px/py = Bildlage des Drehpunkts.
+  const bcam = { yaw: -0.62, pitch: 0.45, zoom: 1, drag: null, pivot: null, px: 0, py: 0, view: null };
   function renderBlock() {
     if (!window.BlockPrep) return;
     const k = App.kerfForSpeed(App.matIdFor('wing'), state.block.feed);
@@ -56,7 +57,7 @@
     const rot = (x, y, z) => {
       x -= cx; y -= ch; z -= cz;
       const X = x * cyaw - z * syaw, Z = x * syaw + z * cyaw;
-      return { x: X, y: y * cp - Z * sp };
+      return { x: X, y: y * cp - Z * sp, d: y * sp + Z * cp };   // d: Tiefe, größer = näher am Betrachter
     };
     // Autoscale über alle relevanten Punkte.
     const box = [[d1, 0, 0], [d2, 0, 0], [d2, H, 0], [d1, H, 0], [d1, 0, mw], [d2, 0, mw], [d2, H, mw], [d1, H, mw]];
@@ -65,8 +66,17 @@
     let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
     pts.forEach(pp => { const p = rot(pp[0], pp[1], pp[2]); mnx = Math.min(mnx, p.x); mxx = Math.max(mxx, p.x); mny = Math.min(mny, p.y); mxy = Math.max(mxy, p.y); });
     const pad = 46, s = Math.min((w - 2 * pad) / ((mxx - mnx) || 1), (h - 2 * pad) / ((mxy - mny) || 1)) * bcam.zoom;
-    const ox = (mnx + mxx) / 2, oy = (mny + mxy) / 2;
-    const S = (x, y, z) => { const p = rot(x, y, z); return { x: w / 2 + (p.x - ox) * s, y: h / 2 - (p.y - oy) * s }; };
+    // Bildmitte = Box-Mitte; mit Drehpunkt liegt stattdessen der Drehpunkt bei (w/2 + px, h/2 + py).
+    const pv = bcam.pivot ? rot(bcam.pivot[0], bcam.pivot[1], bcam.pivot[2]) : null;
+    const ox = pv ? pv.x : (mnx + mxx) / 2, oy = pv ? pv.y : (mny + mxy) / 2, ax = w / 2 + (pv ? bcam.px : 0), ay = h / 2 + (pv ? bcam.py : 0);
+    const S = (x, y, z) => { const p = rot(x, y, z); return { x: ax + (p.x - ox) * s, y: ay - (p.y - oy) * s, d: -p.d }; };
+    // Für den Drehpunkt-Pick: Projektion und Sehstrahl (Bildpunkt -> Weltpunkt bei Tiefe 0 + Richtung).
+    bcam.view = { S, w, h, d1, d2, H, mw, cz, cuts,
+      ray: (sx, sy) => {
+        const X = (sx - ax) / s + ox, Y = -(sy - ay) / s + oy;   // Tiefe D frei: y = Y·cp + D·sp, Z = −Y·sp + D·cp
+        const y0 = Y * cp, Z0 = -Y * sp;
+        return { o: [cx + X * cyaw + Z0 * syaw, ch + y0, cz - X * syaw + Z0 * cyaw], dir: [cp * syaw, sp, cp * cyaw] };
+      } };
     const line = (a, b, col, wd) => { ctx.strokeStyle = col; ctx.lineWidth = wd || 1; ctx.beginPath(); const p = S(a[0], a[1], a[2]), q = S(b[0], b[1], b[2]); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); };
     // Nullpunkt-Bezugslinie (X-Achse bei Y0), rot.
     line([Math.min(0, d1) - 20, 0, cz], [d2 + 30, 0, cz], '#ff3b3b', 1.5);
@@ -83,12 +93,37 @@
     const o = S(0, 0, cz); ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(o.x, o.y, 4, 0, 2 * Math.PI); ctx.fill();
     ctx.fillStyle = '#8b98a8'; ctx.font = '11px Segoe UI'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('X0/Y0', o.x + 6, o.y + 4);
+    if (bcam.pivot && window.ViewCube && ViewCube.drawPivot) { const q = S(bcam.pivot[0], bcam.pivot[1], bcam.pivot[2]); ViewCube.drawPivot(ctx, q.x, q.y); }
     ctx.fillText(T('Block ') + L + ' × ' + H + T(' mm · 1. Schnitt bei X=') + d1 + ' mm', 12, 18);
-    ctx.fillText(T('Ziehen = drehen · Rad = Zoom · Doppelklick = zurück'), 12, h - 10);
+    ctx.fillText(T('Ziehen = drehen · Rad = Zoom · Mausrad-Doppelklick = Drehpunkt · Doppelklick = zurück'), 12, h - 10);
+  }
+  // Weltpunkt unter (x, y): vorderster Schnitt des Sehstrahls mit dem Block-Quader; sonst nächster
+  // Punkt auf Kanten, Schnittebenen-Rändern oder der Nullpunkt-Linie (14 px Umkreis).
+  function blockPick(x, y) {
+    const V = bcam.view; if (!V) return null;
+    const r = V.ray(x, y), lo = [V.d1, 0, 0], hi = [V.d2, V.H, V.mw];
+    let t0 = -Infinity, t1 = Infinity;
+    for (let k = 0; k < 3; k++) {
+      if (Math.abs(r.dir[k]) < 1e-12) { if (r.o[k] < lo[k] || r.o[k] > hi[k]) { t0 = Infinity; break; } continue; }
+      let a = (lo[k] - r.o[k]) / r.dir[k], b = (hi[k] - r.o[k]) / r.dir[k]; if (a > b) { const q = a; a = b; b = q; }
+      t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+    }
+    if (t0 <= t1) return r.o.map((v, k) => v + r.dir[k] * t1);   // größte Tiefe = dem Betrachter nächste Fläche
+    if (!(window.ViewCube && ViewCube.pickNear)) return null;
+    const segs = [[[Math.min(0, V.d1) - 20, 0, V.cz], [V.d2 + 30, 0, V.cz]]];
+    V.cuts.forEach(c => { const P = [[c.x1, 0, 0], [c.x1, V.H, 0], [c.x1, V.H, V.mw], [c.x1, 0, V.mw]]; for (let i = 0; i < 4; i++) segs.push([P[i], P[(i + 1) % 4]]); });
+    return ViewCube.pickNear(x, y, cb => segs.forEach(([a, b]) => { for (let i = 0; i <= 40; i++) { const t = i / 40; cb(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t); } }), V.S, 14);
+  }
+  // Drehpunkt setzen: px/py so, dass der Punkt an seiner Bildschirmstelle bleibt (Maßstab unverändert -> kein Springen).
+  function blockSetPivot(x, y) {
+    const pt = blockPick(x, y), V = bcam.view; if (!pt) return false;
+    const q = V.S(pt[0], pt[1], pt[2]);
+    bcam.pivot = pt; bcam.px = q.x - V.w / 2; bcam.py = q.y - V.h / 2;
+    renderBlock(); return true;
   }
   function setupBlock3D() {
     const cv = document.getElementById('cBlock'); if (!cv) return;
-    if (window.ViewCube) ViewCube.attach({ canvas: () => document.getElementById('cBlock'), get: () => bcam, set: (y, p) => { bcam.yaw = y; bcam.pitch = p; }, redraw: () => renderBlock(),
+    if (window.ViewCube) ViewCube.attach({ reset: () => { bcam.yaw = -0.62; bcam.pitch = 0.45; bcam.zoom = 1; bcam.pivot = null; bcam.px = bcam.py = 0; }, canvas: () => document.getElementById('cBlock'), get: () => bcam, set: (y, p) => { bcam.yaw = y; bcam.pitch = p; }, redraw: () => renderBlock(),
       rot: (v, y, p) => ViewCube.ROT_STD(v, -y, p), k: [-0.01, -0.01], labels: { '+x': '+X', '-x': '−X', '+z': '+Z', '-z': '−Z' } });
     cv.addEventListener('mousedown', e => { bcam.drag = { x: e.clientX, y: e.clientY, yaw: bcam.yaw, pitch: bcam.pitch }; cv.style.cursor = 'grabbing'; });
     window.addEventListener('mousemove', e => {
@@ -99,7 +134,8 @@
     });
     window.addEventListener('mouseup', () => { if (bcam.drag) { bcam.drag = null; cv.style.cursor = 'grab'; } });
     cv.addEventListener('wheel', e => { e.preventDefault(); bcam.zoom *= Math.exp(-e.deltaY * 0.0015); renderBlock(); }, { passive: false });
-    cv.addEventListener('dblclick', () => { bcam.yaw = -0.62; bcam.pitch = 0.45; bcam.zoom = 1; renderBlock(); });
+    cv.addEventListener('dblclick', () => { bcam.yaw = -0.62; bcam.pitch = 0.45; bcam.zoom = 1; bcam.pivot = null; bcam.px = bcam.py = 0; renderBlock(); });
+    if (window.ViewCube && ViewCube.midDbl) ViewCube.midDbl(cv, (x, y) => blockSetPivot(x, y));   // Mausrad-Doppelklick = Drehpunkt
     cv.style.cursor = 'grab';
   }
 
@@ -134,13 +170,27 @@
         v => { state.guillotine.feed = v; refreshCutSource('guillotine'); }, { min: 1, norender: true });
       const ovIn = numRow(zuG.body, 'Überfahrt unter Y0 (mm, negativ)', () => -Math.abs(state.guillotine.overY || 0),
         v => { state.guillotine.overY = -Math.abs(v); refreshCutSource('guillotine'); }, { max: 0, step: 0.5, norender: true,
-        hint: 'Y-Zielwert unter dem Nullpunkt, z. B. -3 = der Draht fährt auf derselben Schnittlinie bis Y = -3 mm, um sicher ganz durchzuschneiden. Das Vorzeichen wird automatisch negativ gesetzt. Unten hält die Maschine an (Pause, Draht bleibt an); nach „Fortsetzen“ geht der Draht aus und sie fährt im Eilgang zurück auf Y0. 0 = aus. Achtung: Die Maschine muss den Weg unter Y0 tatsächlich fahren können (Endschalter/Auflage prüfen).' });
+        hint: 'Y-Zielwert unter dem Nullpunkt, z. B. -3 = der Draht fährt auf derselben Schnittlinie bis Y = -3 mm, um sicher ganz durchzuschneiden. Das Vorzeichen wird automatisch negativ gesetzt. 0 = aus. Achtung: Die Maschine muss den Weg unter Y0 tatsächlich fahren können (Endschalter/Auflage prüfen).' });
       // Vorzeichen automatisch negativ: beim Verlassen des Feldes den gespeicherten Wert anzeigen (3 → -3).
       ovIn.onblur = () => { ovIn.value = -Math.abs(state.guillotine.overY || 0); };
       selectRow(zuG.body, 'Rauffahren', [['rapid', 'Eilgang (Draht aus)'], ['cut', 'Schnitt (Draht ein)']],
         () => state.guillotine.upMode, v => { state.guillotine.upMode = v; refreshCutSource('guillotine'); },
         'Eilgang: schnell rauf mit Max-Vorschub, Draht automatisch AUS (nur Positionieren). '
-        + 'Schnitt: rauf mit Vorschub, Draht automatisch EIN (schneidet bereits hoch).');
+        + 'Schnitt: rauf mit Vorschub, Draht automatisch EIN (schneidet bereits hoch). '
+        + 'Mit X-Versatz fährt der Draht immer erst senkrecht hoch und oben waagrecht hin (Draht aus); '
+        + 'die Wahl gilt dann für das Rauffahren in der Schnittfuge nach dem Durchschneiden (Standard: Schnitt), zurück geht es in der Rückfahrhöhe.');
+      boolRow(zuG.body, 'Pause nach dem Schnitt', () => !!state.guillotine.pauseAfter,
+        v => { state.guillotine.pauseAfter = v; refreshCutSource('guillotine'); },
+        'Nach dem Schnitt von oben nach unten und der Verweilzeit (Werkstoff) hält die Maschine an (Draht aus), '
+        + 'z. B. um den Abschnitt zu entnehmen. Nach „Fortsetzen“ fährt sie in der Fuge rauf und zurück auf den Nullpunkt.');
+      selectRow(zuG.body, 'Rückfahrt', [['safe', 'über Sicherheitshöhe'], ['path', 'über den Schneideweg']],
+        () => state.guillotine.retMode || 'safe', v => { state.guillotine.retMode = v; refreshCutSource('guillotine'); },
+        'Bei X-Versatz, nach dem Schnitt: „über Sicherheitshöhe“ = in der Schnittfuge nur bis zur Sicherheitshöhe hoch und dort '
+        + 'waagrecht zurück auf X0. „über den Schneideweg“ = in der Fuge ganz rauf auf die Schnitthöhe und oben zurück auf X0 '
+        + '(derselbe Weg wie beim Hinfahren). Danach jeweils senkrecht runter auf Y0.');
+      numRow(zuG.body, 'Sicherheitshöhe (mm)', () => state.guillotine.retH != null ? state.guillotine.retH : 10,
+        v => { state.guillotine.retH = Math.max(0, v); refreshCutSource('guillotine'); }, { min: 0, norender: true,
+        hint: 'Nur bei Rückfahrt „über Sicherheitshöhe“: bis auf diese Höhe fährt der Draht in der Schnittfuge hoch und dort waagrecht zurück auf X0, dann runter auf Y0. Standard 10 mm (höchstens die Schnitthöhe).' });
       hint(zuG.body, 'Ein gerader, planarer Schnitt (beide Türme identisch). Als G-Code-Quelle „Guillotine" '
         + 'im Reiter „Schneiden" wählen und übernehmen.');
       side.appendChild(zuG.g);

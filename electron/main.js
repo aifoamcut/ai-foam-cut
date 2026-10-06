@@ -36,6 +36,21 @@ let server = null;
 // Erst wenn das Hauptfenster steht, darf das Schliessen aller Fenster beenden.
 let mainWindowReady = false;
 
+// ------------------------------------------------------------ Absturzprotokoll
+// Stirbt der Renderer oder der GPU-Prozess, bleibt sonst nur ein weisses
+// Fenster ohne Spur. Alles landet in afc-start.log neben der exe.
+function crashLog(what, info) {
+  try {
+    fs.appendFileSync(path.join(exeDir(), 'afc-start.log'),
+      '[' + new Date().toISOString() + '] ' + what + ' (Electron ' + process.versions.electron
+      + ', ' + process.arch + ', ' + require('os').release() + ')\n'
+      + JSON.stringify(info || {}, null, 1) + '\n\n', 'utf-8');
+  } catch (e) {}
+}
+process.on('uncaughtException', function (err) { crashLog('Hauptprozess: Ausnahme', { msg: String(err && err.stack || err) }); });
+app.on('render-process-gone', function (_e, _wc, d) { crashLog('Renderer beendet', d); });
+app.on('child-process-gone', function (_e, d) { crashLog('Hilfsprozess beendet', d); });
+
 // ---------------------------------------------------------------- Ablaufdatum
 function checkExpiry() {
   if (!Array.isArray(CFG.EXPIRY) || CFG.EXPIRY.length < 3) return true;   // ohne Ablaufdatum
@@ -261,6 +276,10 @@ function createMainWindow(startUrl) {
   win.maximize();
 
   guardContentType(win, startUrl);
+  // JS-Fehler im Fenster mitschreiben (Level 3 = Fehler).
+  win.webContents.on('console-message', function (_e, level, msg, line, src) {
+    if (level >= 3) crashLog('JS-Fehler', { msg: msg, src: src, line: line });
+  });
   setupSerial(win.webContents.session, win);
 
   // Externe Links (Forum, Hilfe) im echten Browser oeffnen, nicht in der App;

@@ -1476,6 +1476,12 @@
       numRow(shc.body, 'Schalendicke unten (mm)', () => state.cfg.shellBot,
         v => state.cfg.shellBot = Math.max(0, v),
         { step: 1, min: 0, hint: 'Dicke der Unterschale ab Blockunterkante (nach dem Kernschnitt getrennt).' });
+      numRow(shc.body, 'Abstand vor dem Block (mm)', () => state.cfg.shellPreF != null ? state.cfg.shellPreF : 5,
+        v => state.cfg.shellPreF = Math.max(0, v),
+        { step: 1, min: 0, hint: 'Nur mit „Blockschnitt vor Profilschnitt": so weit vor der Blockvorderkante taucht der Draht für die Oberschale ein und so weit läuft die Unterschale über die Blockvorderkante hinaus.' });
+      numRow(shc.body, 'Abstand hinter dem Block (mm)', () => state.cfg.shellPreR != null ? state.cfg.shellPreR : 5,
+        v => state.cfg.shellPreR = Math.max(0, v),
+        { step: 1, min: 0, hint: 'Nur mit „Blockschnitt vor Profilschnitt": so weit hinter das hintere Blockende fährt der Draht nach der Oberschale und nach dem Profil (Anfahrt Unterschale), höchstens bis Null-X (außer das Blockende liegt selbst dahinter).' });
       hint(shc.body, 'Trapez-Keil (Rand − Wurzel) = k_t − k_r aus dem Abbrand je Rippe (cutKerf). '
         + 'Blockhöhe muss beide Schalen + Kern fassen.');
     }
@@ -1815,7 +1821,7 @@
     if (window.Model3D && Model3D.hasModel()) { srcOpts.push(['model', '3D-Modell (Segment)']); srcOpts.push(['plate', '3D-Modell Platte (mehrere)']); }
     if (window.Schrift) srcOpts.push(['schrift', 'Schriften']);
     if (!window.Schrift && state.cfg.gcodeSource === 'schrift') state.cfg.gcodeSource = 'core';
-    if (window.Ausschnitt) srcOpts.push(['ausschnitt', 'Tragflächenausschnitt']);
+    if (window.Ausschnitt) srcOpts.push(['ausschnitt', 'Ausschnitte']);
     if (!window.Ausschnitt && state.cfg.gcodeSource === 'ausschnitt') state.cfg.gcodeSource = 'core';
     selectRow(pv.body, 'G-Code-Quelle', srcOpts,
       () => state.cfg.gcodeSource,
@@ -1860,7 +1866,7 @@
     } else if (state.cfg.gcodeSource === 'schrift') {
       hint(pv.body, 'Text, Schriftart, Verbindung und Block stellt der Reiter „Schriften" ein.');
     } else if (state.cfg.gcodeSource === 'ausschnitt') {
-      hint(pv.body, 'Profil, Block, Anfahrt, Startpunkt und Schnittrichtung stellt der Reiter „Tragflächenausschnitt" ein.');
+      hint(pv.body, 'Profil, Block, Anfahrt, Startpunkt und Schnittrichtung stellt der Reiter „Ausschnitte" ein.');
     } else {
       pv.body.appendChild(segmentSelectRow());
     }
@@ -2017,6 +2023,8 @@
     // --- Reiter „Rumpf-Pro" (rpro) und „Rumpf-Pro Spanten" (rprob), optionale Features ---
     if (App.rproSidebar) App.rproSidebar(side);
     if (App.rprobSidebar) App.rprobSidebar(side);
+    if (App.rprofSidebar) App.rprofSidebar(side);
+    if (App.cockpitSidebar) App.cockpitSidebar(side);   // Reiter „Cockpit" (optional)
 
     // --- Reiter „Fräse" (fraese, optionales Feature) --------------------
     if (App.fraeseSidebar) App.fraeseSidebar(side);
@@ -2026,6 +2034,9 @@
 
     // --- Reiter „Tragflächenausschnitt" (ausschnitt, optionales Feature) ---
     if (App.ausschnittSidebar) App.ausschnittSidebar(side);
+
+    // --- Reiter „Decals" (decal, optionales Feature) ----------------------
+    if (App.decalSidebar) App.decalSidebar(side);
 
     // --- Reiter „Aerodynamik" (aero, optionales Feature) ------------------
     if (App.aeroSidebar) App.aeroSidebar(side);
@@ -2310,7 +2321,7 @@
 
     const sb = grp('Tragfläche, Schnitt und Block', true, 'gcode');
     if (state.cfg.gcodeSource === 'ausschnitt')
-      warn(sb.body, 'Quelle „Tragflächenausschnitt": Hier gelten Vorschub und Geschwindigkeit außerhalb Block. Anfahrt, Startpunkt und Schnittrichtung stellt der Reiter „Tragflächenausschnitt" ein.');
+      warn(sb.body, 'Quelle „Ausschnitte": Hier gelten Vorschub und Geschwindigkeit außerhalb Block. Anfahrt, Startpunkt und Schnittrichtung stellt der Reiter „Ausschnitte" ein.');
     if (state.cfg.gcodeSource === 'schrift')
       warn(sb.body, 'Quelle „Schriften": Hier gelten Vorschub, Geschwindigkeit außerhalb Block und die Profil-Schnittrichtung (Oberseite/Unterseite zuerst). Schnittrichtung, Tragflächenseite und Blockschnitt betreffen nur Tragflächen.');
     // Ganz oben, groß und deutlich: Schnittrichtung (von hinten / von vorne), darunter
