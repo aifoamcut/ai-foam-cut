@@ -423,6 +423,21 @@
     return wrap;
   }
   window.wrapWithSpinner = wrapWithSpinner;   // auch für grbl.js (GRBL-/Homing-Felder)
+  /* „Blockschnitt nur durch den Werkstoff" + Überschnitt (cfg.blockCutLow/blockCutOver,
+   * ausgewertet in App.blockCutY). Erscheint bei den Blockschnitt-Einstellungen
+   * (Schnittreihenfolge, DXF-Blockzuschnitt, Schalenrand-Vorschnitte der Negativschale).
+   * Gemeinsame Einstellung — überall dieselben Werte. */
+  function blockCutLowRows(body, rebuild) {
+    boolRow(body, 'Blockschnitt nur durch den Werkstoff', () => state.cfg.blockCutLow,
+      v => { state.cfg.blockCutLow = v; (rebuild || buildSidebar)(); },
+      'Bei angehobenem Block (Höhe über Nullpunkt Y > 0) fahren alle senkrechten Blockschnitte '
+      + 'nicht bis Y=0 hinunter, sondern nur durch den Werkstoff plus den Überschnitt darunter. '
+      + 'Gilt für Kern, DXF-Formen und die Schalenrand-Vorschnitte der Negativschale.');
+    if (state.cfg.blockCutLow)
+      numRow(body, 'Überschnitt unter dem Block (mm)', () => state.cfg.blockCutOver != null ? state.cfg.blockCutOver : 1,
+        v => state.cfg.blockCutOver = Math.max(0, v),
+        { min: 0, step: 0.5, hint: 'So weit fährt der Draht unter die Blockunterkante, um sicher durchzuschneiden (Standard 1 mm). Nie tiefer als Y=0.' });
+  }
   function numRow(body, label, get, set, opt) {
     opt = opt || {};
     if (opt.hint) hint(body, opt.hint);
@@ -1932,6 +1947,7 @@
           + 'Profilschnitt als zwei planare Vertikalschnitte gefahren (wie der Blockschnitt beim Kern) '
           + '— dient als konstante Referenzkante beim späteren Bauen. Bezug ist der Werkstoff: die Schnitte gehen '
           + 'immer vertikal durch den ganzen Werkstoff-Block. 0 = aus. Sollte ≤ Überstand vorne/hinten sein.' });
+    if (!negDirect && (state.cfg.negShellEdge || 0) > 0) blockCutLowRows(ng.body);
 
     subhead(ng.body, 'Schalentrennung');
     selectRow(ng.body, 'Schnittverlauf an der Endleiste',
@@ -2389,7 +2405,7 @@
        ['wrap',   'Blockschnitt während Profilschnitt'],
        ['only',   'Nur Blockschnitt'],
        ['none',   'Ohne Blockschnitt']],
-      () => state.cfg.cutOrder, v => { state.cfg.cutOrder = v; render(); },
+      () => state.cfg.cutOrder, v => { state.cfg.cutOrder = v; buildSidebar(); render(); },
       cutFrontOn
       ? 'Blockschnitt = zwei vertikale Schnitte durch den Block: Blockvorderkante (Nase, nah am Nullpunkt) und hinteres '
         + 'Blockende (Endleiste, fern) — je auf Null. „Vor Profilschnitt": erst hinten, dann vorne; aus dem vorderen '
@@ -2408,6 +2424,7 @@
       + '„Ohne Blockschnitt": Draht fährt hinten am Nullpunkt auf Höhe der EL-Verlängerung, '
       + 'horizontal von hinten ins Profil, schneidet die Kontur, fährt horizontal zurück und dann vertikal auf Null. '
       + 'Sicherheitshöhe: Reiter „Projektübersicht".');
+    if ((state.cfg.cutOrder || 'none') !== 'none') blockCutLowRows(sb.body);
     if (state.cfg.gcodeSource === 'dxf')
       hint(sb.body, 'Quelle „DXF-Formen": Die Abstände vorne/hinten/oben/unten stehen im Reiter „DXF-Formen" beim Segment. '
         + '„Blockschnitt während Profilschnitt" wird bei DXF-Formen wie „vor Profilschnitt" ausgeführt.');
@@ -3155,7 +3172,7 @@
   // ---- Registry: eigene Top-Level-Namen bereitstellen (automatisch) ----
   Object.assign(App, { kerfModeOf, kerfModeRow, kerfTrueRow });
   Object.assign(App, { AXIS_L, GRP_OPEN_DEFAULT, GRP_PALETTE, HINTS_KEY, MENU_COL_KEY, MENU_REG, NOTES_KEY, applyHintsMode });
-  Object.assign(App, { applyMenuColor, applyMenuColors, applyNotesEnabled, applySidebarFilter, areaRow, boolRow, buildModelGcodeSidebar, buildModelScene });
+  Object.assign(App, { applyMenuColor, applyMenuColors, applyNotesEnabled, applySidebarFilter, areaRow, blockCutLowRows, boolRow, buildModelGcodeSidebar, buildModelScene });
   Object.assign(App, { buildModelSidebar, buildModelStlSidebar, buildNotePop, buildPlateScene, buildPlateSidebar, buildSidebar, closeNotePop, decorateFields });
   Object.assign(App, { decorateHints, decorateNotes, effBlockZ, extTriple, grp, grpColor, grpColorDefault, grpKey });
   Object.assign(App, { grpState, hint, hintHost, mgCfg, mgOpt, mkMini, modelGcode, newSpar });

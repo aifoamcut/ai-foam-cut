@@ -87,6 +87,9 @@
 
     const safeY = opt.safeY;
     const bc = opt.blockCut;
+    // Unteres Ende der vertikalen Blockschnitte (Maschinen-Y): 0 oder knapp unter der
+    // angehobenen Blockunterkante (App.blockCutY, „Blockschnitt nur durch den Werkstoff").
+    const yBC = Math.max(0, +opt.blockCutY || 0);
     // Modus der Schnittreihenfolge:
     //  'before' Blockschnitt VOR Profilschnitt   'after' Blockschnitt NACH Profilschnitt
     //  'only'   nur Blockschnitt (kein Profil)    'none'  ohne Blockschnitt (horizontale Anfahrt)
@@ -126,7 +129,7 @@
     const gBlock1 = (xl, yv, xr, cm) => em(`G1 ${ax.x}${xl} ${ax.y}${f(yv)} ${ax.u}${xr} ${ax.v}${f(yv)} F${feed.toFixed(0)} ; ${cm}`);
     function emitBlockAt(pos, label) {
       gBlock0(fx(pos.l), safeY, fx(pos.r), 'horizontal an Schnittposition (max)');   // horizontal — MAX
-      gBlock1(fx(pos.l), 0, fx(pos.r), T('vertikal runter, ') + T(label));                  // oben -> unten (Schnitt)
+      gBlock1(fx(pos.l), yBC, fx(pos.r), T('vertikal runter, ') + T(label));                  // oben -> unten (Schnitt)
       if ((opt.meltDwell || 0) > 0) em('G4 P' + opt.meltDwell + ' ; ' + T('am Nullpunkt verweilen (durchschmelzen)'));
       gBlock1(fx(pos.l), safeY, fx(pos.r), T('vertikal hoch, ') + T(label));                // unten -> oben (Schnitt)
     }
@@ -509,7 +512,7 @@
         const e = Lp[Lp.length - 1], er = Rp[Rp.length - 1];
         const B = sNear ? farB : nearB, tx = sNear ? farTx : nearTx;
         mv(fx(B.l), fy(e.y), fx(B.r), fy(er.y), capF(feed), T(tx.fMove));
-        gBlock1(fx(B.l), 0, fx(B.r), tx.fDown);
+        gBlock1(fx(B.l), yBC, fx(B.r), tx.fDown);
         dwell();
         gBlock1(fx(B.l), safeY, fx(B.r), tx.fUp);
         if (sNear) farCut = true; else nearCut = true;
@@ -550,7 +553,7 @@
         // auf die Einlaufhöhe des ersten Zugs.
         const Bs = s0Near ? nearB : farB, txs = s0Near ? nearTx : farTx;
         gBlock0(fx(Bs.l), safeY, fx(Bs.r), 'horizontal an Schnittposition (max)');
-        gBlock1(fx(Bs.l), 0, fx(Bs.r), txs.fDown1);
+        gBlock1(fx(Bs.l), yBC, fx(Bs.r), txs.fDown1);
         dwell();
         if (s0Near) { nearCut = true; pos = 'nearKerf'; } else { farCut = true; pos = 'farKerf'; }
       }
@@ -640,7 +643,7 @@
       // aus der Tiefe direkt bis auf die Höhe der oberen EL-Verlängerung
       // steigen — dort beginnt der Profilschnitt.
       gBlock0(fx(bc.rear.l), safeY, fx(bc.rear.r));            // horizontal zum hinteren Blockende
-      gBlock1(fx(bc.rear.l), 0, fx(bc.rear.r), 'vertikal auf Null (hinteres Blockende)');
+      gBlock1(fx(bc.rear.l), yBC, fx(bc.rear.r), 'vertikal auf Null (hinteres Blockende)');
       if ((opt.meltDwell || 0) > 0) em('G4 P' + opt.meltDwell + ' ; ' + T('am Nullpunkt verweilen (durchschmelzen)'));
       // Zuerst senkrecht (am hinteren Blockende) auf die Höhe des Profilanfangs,
       // dann horizontal an den Profilanfang — nicht schräg.
@@ -673,7 +676,7 @@
       goSafeAtOrigin();
       // 1) Hinteres Blockende (auf Null), dann direkt hoch auf den Profilanfang.
       gBlock0(fx(bc.rear.l), safeY, fx(bc.rear.r));
-      gBlock1(fx(bc.rear.l), 0, fx(bc.rear.r), 'vertikal auf Null (hinteres Blockende)');
+      gBlock1(fx(bc.rear.l), yBC, fx(bc.rear.r), 'vertikal auf Null (hinteres Blockende)');
       if ((opt.meltDwell || 0) > 0) em('G4 P' + opt.meltDwell + ' ; ' + T('am Nullpunkt verweilen (durchschmelzen)'));
       em(`G1 ${ax.x}${fx(bc.rear.l)} ${ax.y}${fy(L[0].y)} ${ax.u}${fx(bc.rear.r)} ${ax.v}${fy(R[0].y)} F${feed.toFixed(0)} ; vertikal hoch auf Höhe des Profilanfangs (im Blockschnitt, Schnittvorschub)`);
       if (leadThrough(L[0], R[0], 0))
@@ -689,7 +692,7 @@
       //    auf Nasenhöhe und zurück zur Nase.
       em(`G1 ${ax.x}${fx(bc.front.l)} ${ax.y}${fy(L[iLE].y)} ${ax.u}${fx(bc.front.r)} ${ax.v}${fy(R[iLE].y)} F${feed.toFixed(0)} ; vor die Nase zur Blockvorderkante (durch den vorderen Verschnitt, Schnittvorschub)`);
       gBlock1(fx(bc.front.l), safeY, fx(bc.front.r), 'vertikal hoch auf Sicherheitshöhe (Blockvorderkante oben)');
-      gBlock1(fx(bc.front.l), 0, fx(bc.front.r), 'vertikal auf Null (Blockvorderkante)');
+      gBlock1(fx(bc.front.l), yBC, fx(bc.front.r), 'vertikal auf Null (Blockvorderkante)');
       if ((opt.meltDwell || 0) > 0) em('G4 P' + opt.meltDwell + ' ; ' + T('am Nullpunkt verweilen (durchschmelzen)'));
       em(`G1 ${ax.x}${fx(bc.front.l)} ${ax.y}${fy(L[iLE].y)} ${ax.u}${fx(bc.front.r)} ${ax.v}${fy(R[iLE].y)} F${feed.toFixed(0)} ; vertikal hoch auf Nasenhöhe (Blockvorderkante)`);
       em(`G1 ${ax.x}${fx(L[iLE].x)} ${ax.y}${fy(L[iLE].y)} ${ax.u}${fx(R[iLE].x)} ${ax.v}${fy(R[iLE].y)} F${feed.toFixed(0)} ; horizontal zurück zur Nase (im Schnittspalt, Schnittvorschub)`);

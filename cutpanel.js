@@ -26,12 +26,18 @@
   /* Reiter „Blockzurichten": 3D-Vorschau + G-Code (zwei kerf-komp. Vertikalschnitte). */
   // pivot = Drehpunkt (Weltpunkt, Mausrad-Doppelklick) oder null = Bildmitte der Box; px/py = Bildlage des Drehpunkts.
   const bcam = { yaw: -0.62, pitch: 0.45, zoom: 1, drag: null, pivot: null, px: 0, py: 0, view: null };
+  // Blockhöhe für „Block ablängen": Werkstoff-Blockhöhe (Standard) oder manuell (state.block.hSrc 'manual').
+  function blockCutH() {
+    const b = state.block;
+    return (b.hSrc === 'manual' && +b.height > 0) ? +b.height : App.blockH('wing');
+  }
+  App.blockCutH = blockCutH;
   function renderBlock() {
     if (!window.BlockPrep) return;
     const k = App.kerfForSpeed(App.matIdFor('wing'), state.block.feed);
-    const spec = { dist: state.block.dist, length: state.block.length, height: App.blockH('wing'), kerf: k };
+    const spec = { dist: state.block.dist, length: state.block.length, height: blockCutH(), kerf: k };
     const cuts = BlockPrep.cutsFor(spec);
-    const safeY = App.blockH('wing') + (state.material.safeH || 20);
+    const safeY = blockCutH() + (state.material.safeH || 20);
     const g = BlockPrep.gcode({
       dist: spec.dist, length: spec.length, H: spec.height, kerf: k,
       feed: state.block.feed, heat: App.currentHeat(), heatS: App.currentWireS(), safeY, precision: state.cfg.precision,
@@ -50,7 +56,7 @@
   function drawBlock3D(cuts) {
     const cv = document.getElementById('cBlock'); if (!cv) return;
     const { ctx, w, h } = fitCanvas(cv); ctx.clearRect(0, 0, w, h);
-    const d1 = state.block.dist, L = state.block.length, H = App.blockH('wing');
+    const d1 = state.block.dist, L = state.block.length, H = blockCutH();
     const d2 = d1 + L, mw = state.cfg.machineWidth || 900;
     const cyaw = Math.cos(bcam.yaw), syaw = Math.sin(bcam.yaw), cp = Math.cos(bcam.pitch), sp = Math.sin(bcam.pitch);
     const cx = (d1 + d2) / 2, ch = H / 2, cz = mw / 2;
@@ -130,7 +136,7 @@
       if (!bcam.drag) return;
       bcam.yaw = bcam.drag.yaw - (e.clientX - bcam.drag.x) * 0.01 * (Math.cos(bcam.drag.pitch) < 0 ? -1 : 1);   // invertiert (wie Simulator)
       bcam.pitch = bcam.drag.pitch - (e.clientY - bcam.drag.y) * 0.01;   // keine Kipp-Begrenzung
-      drawBlock3D(BlockPrep ? BlockPrep.cutsFor({ dist: state.block.dist, length: state.block.length, height: App.blockH('wing'), kerf: App.kerfForSpeed(state.material.id, state.block.feed) }) : []);
+      drawBlock3D(BlockPrep ? BlockPrep.cutsFor({ dist: state.block.dist, length: state.block.length, height: blockCutH(), kerf: App.kerfForSpeed(state.material.id, state.block.feed) }) : []);
     });
     window.addEventListener('mouseup', () => { if (bcam.drag) { bcam.drag = null; cv.style.cursor = 'grab'; } });
     cv.addEventListener('wheel', e => { e.preventDefault(); bcam.zoom *= Math.exp(-e.deltaY * 0.0015); renderBlock(); }, { passive: false });
@@ -200,29 +206,62 @@
       numRow(zuV.body, '1. Schnitt: Abstand von Nullpunkt X (mm)', () => state.block.dist,
         v => { state.block.dist = v; renderBlock(); refreshCutSource('block'); }, { min: 0, norender: true,
         hint: 'Horizontaler Abstand des vorderen Schnitts vom Maschinen-Nullpunkt (X0).' });
-      // Blocklänge: frei wählbar ODER direkt eine Segment-Spannweite aus dem
-      // Tragflächendesigner übernehmen. Bei Auswahl eines Segments wird dessen
-      // span als Blocklänge gesetzt; „Frei" lässt die manuelle Eingabe zu.
-      if (state.segments && state.segments.length) {
+      // Blocklänge: frei wählbar ODER direkt eine Segmentlänge übernehmen — aus dem
+      // Tragflächendesigner (Schlüssel 'i', Altstand), den DXF-Formen ('dxf:i') oder
+      // dem 3D-Modell ('m3d:i', Abstand der Schnittebenen). „Frei" = manuelle Eingabe.
+      const segLenSrc = [];
+      (state.segments || []).forEach((s, i) =>
+        segLenSrc.push([String(i), T('Tragfläche') + ' – ' + T('Segment ') + (i + 1), s.span || 0]));
+      const dx = state.dxf;
+      if (dx && Array.isArray(dx.ribs) && dx.ribs.length >= 2 && App.dxfSegCount) {
+        for (let i = 0; i < App.dxfSegCount(); i++) {
+          const sg = dx.segs && dx.segs[i];
+          segLenSrc.push(['dxf:' + i, T('DXF-Formen') + ' – ' + T('Segment ') + (i + 1),
+            i === dx.activeSeg ? (dx.span || 0) : ((sg && sg.span) || 0)]);
+        }
+      }
+      const m3 = window.Model3D;
+      if (m3 && m3.hasModel && m3.hasModel()) {
+        const b = m3.boundaries();
+        for (let i = 0; i + 1 < b.length; i++)
+          segLenSrc.push(['m3d:' + i, T('3D-Modell') + ' – ' + T('Segment ') + (i + 1), Math.abs(b[i + 1] - b[i])]);
+      }
+      if (segLenSrc.length) {
+        // Gewählte Quelle nachziehen (Segmentlänge evtl. inzwischen geändert);
+        // existiert sie nicht mehr, gilt wieder „Frei".
+        const cur = state.block.lenSrc == null ? 'free' : String(state.block.lenSrc);
+        const hit = segLenSrc.find(o => o[0] === cur);
+        if (hit) { if (hit[2] > 0) state.block.length = +hit[2].toFixed(2); }
+        else state.block.lenSrc = 'free';
         const segLenOpts = [['free', 'Frei']].concat(
-          state.segments.map((s, i) =>
-            [String(i), T('Segment ') + (i + 1) + ' (' + (s.span || 0).toFixed(0) + ' mm)']));
+          segLenSrc.map(o => [o[0], o[1] + ' (' + o[2].toFixed(1) + ' mm)']));
         selectRow(zuV.body, 'Blocklänge aus Segment', segLenOpts,
-          () => (state.block.lenSrc == null ? 'free' : state.block.lenSrc),
+          () => (state.block.lenSrc == null ? 'free' : String(state.block.lenSrc)),
           v => {
             state.block.lenSrc = v;
-            if (v !== 'free') {
-              const s = state.segments[+v];
-              if (s) state.block.length = s.span || 0;
-            }
+            const o = segLenSrc.find(x => x[0] === v);
+            if (o && o[2] > 0) state.block.length = +o[2].toFixed(2);
             buildSidebar(); renderBlock(); refreshCutSource('block');
           },
-          'Blocklänge frei eingeben oder direkt die Spannweite eines Segments aus dem Tragflächendesigner übernehmen.');
+          'Blocklänge frei eingeben oder direkt die Länge eines Segments übernehmen: Spannweite aus dem Tragflächendesigner, '
+          + 'Segment-Spannweite der DXF-Formen oder Abstand der Schnittebenen eines Segments im 3D-Modell.');
       }
       numRow(zuV.body, 'Blocklänge (mm)', () => state.block.length,
         v => { state.block.length = v; state.block.lenSrc = 'free'; renderBlock(); refreshCutSource('block'); }, { min: 1, norender: true,
         hint: 'Abstand vom 1. zum 2. (hinteren) Schnitt = fertige Blocklänge.' });
-      hint(zuV.body, 'Blockhöhe = Werkstoff-Blockhöhe (Reiter „Projektübersicht"). Der Draht sticht an der Blockoberkante ein und fährt bis Y0 durch.');
+      selectRow(zuV.body, 'Höhe des Rohblocks', [['mat', T('aus Werkstoff') + ' (' + (+App.blockH('wing')).toFixed(1) + ' mm)'], ['manual', 'manuell eingeben']],
+        () => (state.block.hSrc === 'manual' ? 'manual' : 'mat'),
+        v => {
+          state.block.hSrc = v;
+          if (v === 'manual' && !(+state.block.height > 0)) state.block.height = App.blockH('wing');
+          buildSidebar(); renderBlock(); refreshCutSource('block');
+        },
+        'Höhe des Rohblocks: Werkstoff-Blockhöhe (Reiter „Projektübersicht") oder eine eigene Höhe, z. B. für einen Reststück-Block. '
+        + 'Der Draht sticht an der Blockoberkante ein und fährt bis Y0 durch.');
+      if (state.block.hSrc === 'manual')
+        numRow(zuV.body, 'Blockhöhe Y (mm)', () => state.block.height,
+          v => { state.block.height = v; renderBlock(); refreshCutSource('block'); }, { min: 1, norender: true,
+          hint: 'Höhe des Rohblocks ab Y0 (Maschinen-Nullpunkt) — gilt nur für „Block ablängen" (G-Code, Vorschau und Simulation).' });
       feedRow(zuV.body, 'Vorschub (mm/min)', () => state.block.feed,
         v => { state.block.feed = v; renderBlock(); refreshCutSource('block'); }, { min: 1, norender: true });
       hint(zuV.body, T('Zwei planare Vertikalschnitte, um Abbrand/2 nach außen versetzt (Abbrand-kompensiert) → Block misst exakt die Länge. Draht ')

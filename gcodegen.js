@@ -34,6 +34,7 @@
       maxFeed: state.cfg.maxFeed || 0, outsideFeed: outsideFeed(),
       origin: origin,
       meltDwell: +state.material.meltDwell || 0,
+      blockCutY: App.blockCutY(),
       cutMode: state.cfg.cutOrder,
       profileDir: state.cfg.profileDir,
       // Schnittrichtung „von vorne" (Nase zum Nullpunkt, zwei Züge Nase → Endleiste).
@@ -554,8 +555,9 @@
       // fährt IMMER ganz auf Vertikal 0 hinunter — auch wenn der Block über die
       // G-Code-Blocklage (blockY) in der Höhe verschoben ist. So läuft der Schnitt
       // stets komplett durch, statt bei blockY ≠ 0 auf der angehobenen Blockunter-
-      // kante (Y = blockY) stehen zu bleiben. Beide Türme auf 0.
-      const ybR = f(0), ybT = f(0);
+      // kante (Y = blockY) stehen zu bleiben. Beide Türme auf 0 — außer mit
+      // „Blockschnitt nur durch den Werkstoff" (App.blockCutY: Unterkante − Überschnitt).
+      const ybR = f(App.blockCutY()), ybT = f(App.blockCutY());
       const edgeCut = (pos, label) => {
         em(`G0 ${ax.x}${f(0)} ${ax.y}${f(safeY)} ${ax.u}${f(0)} ${ax.v}${f(safeY)} ; hoch auf Sicherheitshöhe`);
         em(`G0 ${ax.x}${fx(pos.l)} ${ax.y}${f(safeY)} ${ax.u}${fx(pos.r)} ${ax.v}${f(safeY)} ; ${T('an ')}${label}`);
@@ -1063,7 +1065,7 @@
       ax: { x: state.cfg.axX, y: state.cfg.axY, u: state.cfg.axU, v: state.cfg.axV },
       feed: state.cfg.feed, wireHeat: App.currentHeat(), wireS: App.currentWireS(), safeY, precision: state.cfg.precision,
       maxFeed: state.cfg.maxFeed || 0, outsideFeed: outsideFeed(),
-      origin: P.origin, cutMode: withBlock ? order : 'none', blockCut: withBlock ? P.blockCut : null,
+      origin: P.origin, cutMode: withBlock ? order : 'none', blockCut: withBlock ? P.blockCut : null, blockCutY: App.blockCutY(),
       // Die waagrechte Anfahrt vom hinteren Blockende bis zur Form läuft durch die
       // Blockzugabe hinten -> ab dort mit Schnittvorschub (nicht in Luft-Tempo).
       // l/r = Turmkoordinaten, in/out = am INNEN-/AUSSEN-Profil (verjüngter Block: verschieden).

@@ -1742,6 +1742,10 @@
     "Abstand in Flugrichtung X (mm)": "Distance in flight direction X (mm)",
     "Abstand vom Boden (mm)": "Distance from the ground (mm)",
     "Höhe über Nullpunkt Y (mm)": "Height above zero Y (mm)",
+    "Blockschnitt nur durch den Werkstoff": "Block cut only through the material",
+    "Bei angehobenem Block (Höhe über Nullpunkt Y > 0) fahren alle senkrechten Blockschnitte nicht bis Y=0 hinunter, sondern nur durch den Werkstoff plus den Überschnitt darunter. Gilt für Kern, DXF-Formen und die Schalenrand-Vorschnitte der Negativschale.": "With a raised block (height above zero Y > 0), all vertical block cuts do not go down to Y=0 but only through the material plus the overcut below it. Applies to the core, DXF shapes and the shell-edge pre-cuts of the negative shell.",
+    "Überschnitt unter dem Block (mm)": "Overcut below the block (mm)",
+    "So weit fährt der Draht unter die Blockunterkante, um sicher durchzuschneiden (Standard 1 mm). Nie tiefer als Y=0.": "How far the wire goes below the bottom of the block to cut through reliably (default 1 mm). Never below Y=0.",
     "Der Block schwebt um diesen Betrag über der Nulllinie (Y=0 darunter).":
       "The block floats above the zero line by this amount (Y=0 below).",
     "Lücke hinter der Endleiste: X=0 sitzt so weit hinter dem Block.":
@@ -1817,6 +1821,15 @@
     "Segment ": "Segment ",
     "Blocklänge frei eingeben oder direkt die Spannweite eines Segments aus dem Tragflächendesigner übernehmen.":
       "Enter block length freely or take the span of a segment from the wing designer directly.",
+    "Höhe des Rohblocks": "Raw block height",
+    "aus Werkstoff": "from material",
+    "manuell eingeben": "enter manually",
+    "Höhe des Rohblocks: Werkstoff-Blockhöhe (Reiter „Projektübersicht\") oder eine eigene Höhe, z. B. für einen Reststück-Block. Der Draht sticht an der Blockoberkante ein und fährt bis Y0 durch.":
+      "Height of the raw block: material block height (tab \"Project overview\") or a custom height, e.g. for a leftover block. The wire plunges at the top of the block and cuts through to Y0.",
+    "Höhe des Rohblocks ab Y0 (Maschinen-Nullpunkt) — gilt nur für „Block ablängen\" (G-Code, Vorschau und Simulation).":
+      "Height of the raw block from Y0 (machine zero) — applies only to \"Cut block to length\" (G-code, preview and simulation).",
+    "Blocklänge frei eingeben oder direkt die Länge eines Segments übernehmen: Spannweite aus dem Tragflächendesigner, Segment-Spannweite der DXF-Formen oder Abstand der Schnittebenen eines Segments im 3D-Modell.":
+      "Enter block length freely or take the length of a segment directly: span from the wing designer, segment span of the DXF shapes, or distance between the cutting planes of a segment in the 3D model.",
     "Blockhöhe Y (mm)": "Block height Y (mm)",
     "Länge (mm)": "Length (mm)",
     "Höhe (mm)": "Height (mm)",
@@ -3542,6 +3555,23 @@
     "Freie Ansicht zurücksetzen": "Reset free view",
     "Vorschlag wählen": "Choose suggestion",
     "Aktuelle Ist-Geschwindigkeit (Vorschub)": "Current actual speed (feed)",
+    "Heizung": "Heat",
+    "Schnittgeschwindigkeit der gerade gesendeten Zeile. Verstellen multipliziert die F-Werte aller folgenden Zeilen mit demselben Faktor; Koordinaten bleiben unverändert.": "Cutting speed of the line currently being sent. Changing it multiplies the F values of all following lines by the same factor; coordinates stay unchanged.",
+    "Doppelklick = G-Code-Wert · Mausrad = ±5 mm/min": "Double-click = G-code value · mouse wheel = ±5 mm/min",
+    "S-Wert der Drahtheizung (M3 S…). Wirkt sofort über den Spindel-Override der Steuerung (10–200 % des G-Code-Werts, 1-%-Schritte).": "S value of the wire heat (M3 S…). Takes effect immediately via the controller's spindle override (10–200 % of the G-code value, 1 % steps).",
+    "Doppelklick = G-Code-Wert · Mausrad = ±1 %": "Double-click = G-code value · mouse wheel = ±1 %",
+    "Vorschub und Heizung wieder auf die Werte aus dem G-Code setzen": "Reset feed and heat to the values from the G-code",
+    "G-Code-Werte": "G-code values",
+    "Regler nur bei „Echtzeit senden\". Echte Werte der gerade gesendeten Zeile, verstellbar während des Schnitts; Koordinaten (und Abbrand) bleiben unverändert. Vorschub: die F-Werte der folgenden Zeilen werden umgeschrieben — wirkt nach den Zeilen, die die Steuerung schon geplant hat. Heizung: wirkt sofort. Begrenzt durch $110… bzw. $30.": "Controls only with \"Send in real time\". Real values of the line currently being sent, adjustable during the cut; coordinates (and kerf) stay unchanged. Feed: the F values of the following lines are rewritten — takes effect after the lines the controller has already planned. Heat: takes effect immediately. Limited by $110… and $30.",
+    "AUS: Zeilen werden paketweise vorausgeschickt (füllt den Empfangspuffer der Steuerung, läuft am ruhigsten). EIN: jede Zeile erst nach dem ok der vorigen — weniger Vorlauf, die Regler für Vorschub und Heizung sind nur dann bedienbar.": "OFF: lines are sent ahead in packets (fills the controller's receive buffer, runs smoothest). ON: each line only after the ok of the previous one — less lead, the feed and heat controls are only usable then.",
+    "Echtzeit senden (Zeile für Zeile) — Regler aktiv": "Send in real time (line by line) — controls active",
+    "3D-Simulation während des Schnitts": "3D simulation during the cut",
+    "⚠ Experimentell — noch nicht an der Maschine getestet: Echtzeit senden, Regler für Vorschub/Heizung und 3D-Simulation während des Schnitts.": "⚠ Experimental — not yet tested on a machine: real-time sending, feed/heat controls and 3D simulation during the cut.",
+    "EIN: der 3D-Monitor zeigt während des Schnitts die tatsächlich gefahrene Stelle (aus der Maschinenposition). AUS: der Monitor bleibt während des Schnitts stehen und wird nicht gezeichnet (spart Rechenzeit). Jederzeit umschaltbar.": "ON: during the cut the 3D monitor shows the position actually being cut (from the machine position). OFF: the monitor stays still and is not redrawn during the cut (saves computing time). Can be switched at any time.",
+    "3D-Simulation während des Schnitts: EIN.": "3D simulation during the cut: ON.",
+    "3D-Simulation während des Schnitts: AUS.": "3D simulation during the cut: OFF.",
+    "Echtzeit senden: EIN (Zeile für Zeile), Regler aktiv.": "Send in real time: ON (line by line), controls active.",
+    "Echtzeit senden: AUS (Pakete), Regler auf G-Code-Werte.": "Send in real time: OFF (packets), controls reset to G-code values.",
     "DXF laden: die größte Kontur der Datei wird in eine .dat gewandelt und wie ein geladenes .dat-Profil verwendet (Reihenfolge/Skalierung werden automatisch normalisiert).":
       "Load DXF: the largest contour of the file is converted to a .dat and used like a loaded .dat airfoil (order/scaling are normalised automatically).",
     "Holm im Grundriss anklicken zum Aktivieren – oder auf die Kopfzeile tippen. Nur der aktive Holm ist aufgeklappt.":

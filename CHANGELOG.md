@@ -4,6 +4,45 @@ Alle nennenswerten Änderungen an **AI Foam Cut** werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/).
 Neueste Einträge oben.
 
+## [1.9] — 2026-10-08
+### Blockschnitt nur durch den Werkstoff bei angehobenem Block (2026-10-08)
+- Neue Option direkt unter **„Schnittreihenfolge"** (nur sichtbar, wenn ein Blockschnitt gewählt ist; ebenso
+  beim DXF-Blockzuschnitt und bei den Schalenrand-Vorschnitten der Negativschale): **„Blockschnitt nur durch den Werkstoff"**. Liegt der Block über
+  „Höhe über Nullpunkt Y" angehoben, fahren alle senkrechten Blockschnitte nicht mehr bis Y=0 hinunter, sondern
+  nur bis zur Blockunterkante plus **„Überschnitt unter dem Block"** (Standard 1 mm, nie tiefer als Y=0).
+- Gilt für alle Blockschnitt-Modi des Kerns (vor/nach/während/nur Blockschnitt, auch „von vorne"), die DXF-Formen,
+  die Schalenrand-Vorschnitte der Negativschale sowie die Bahnvorschau der Simulation. Standard: aus (wie bisher).
+
+### Schneiden: Vorschub und Heizung während des Schnitts regeln (2026-10-08) — EXPERIMENTELL
+- **Experimentell, noch nicht an einer echten Maschine getestet** (nur im Browser mit simulierter Steuerung).
+  Der Hinweis steht auch in der Oberfläche über den Schaltern.
+- Unter dem Programmlauf zwei Regler mit **echten Werten**: **Vorschub in mm/min** und **Heizung als S-Wert**
+  (je Schieber + Eingabefeld), dazu der Knopf **G-Code-Werte**. Angezeigt wird der Wert der gerade gesendeten Zeile.
+- Koordinaten (und damit Abbrand) bleiben unverändert. Unterschiedliche Werte im Programm bleiben im Verhältnis erhalten.
+- **Vorschub:** die F-Werte der noch nicht gesendeten Zeilen werden beim Senden umgeschrieben (G94 mm/min, G93
+  1/Blockdauer; bei modalem F in G94 wird F an die nächste Bewegungszeile angehängt). Wirkt, sobald die bereits in
+  der Steuerung gepufferten Zeilen abgefahren sind.
+- **Heizung:** über den Spindel-Override von grblHAL / Mega 5X (10–200 % des G-Code-Werts, sofort). Ein neues S im
+  laufenden G-Code würde GRBL außerhalb des Lasermodus bis zum leeren Puffer anhalten (Draht steht → Einbrand).
+- Doppelklick = G-Code-Wert, Mausrad = feiner Schritt; abweichende Werte orange. Neues Programm → Regler auf G-Code-Werte.
+- Neue Option **„Echtzeit senden (Zeile für Zeile)"**: jede Zeile erst nach dem ok der vorigen statt paketweise
+  (Character-Counting). Nur mit dieser Option sind die Regler bedienbar; ausschalten setzt sie auf die G-Code-Werte
+  zurück. Umschaltbar auch während des Laufs, wird im Browser gespeichert (Standard: AUS = Pakete).
+- **Gefahrene Zeile aus der Maschinenposition:** GRBL quittiert eine Zeile schon beim Einplanen. Jetzt wird aus der
+  gemeldeten Position (alle 200 ms) das Programmsegment bestimmt, auf dem der Draht wirklich steht (nur vorwärts,
+  Toleranz 0,1 mm). Danach richten sich die Markierung im Programm, der angezeigte Reglerwert und der
+  **3D-Monitor, der jetzt parallel zum Schnitt mitläuft** (Draht an der echten Stelle, „Zeile n"). Passt die Position
+  nicht zum Programm (z. B. anderer Nullpunkt), gilt wie bisher die Quittung.
+- Schalter **„3D-Simulation während des Schnitts"**: EIN = Monitor folgt der Maschine, AUS = Monitor bleibt während des
+  Schnitts stehen und wird nicht gezeichnet (spart Rechenzeit). Jederzeit umschaltbar, wird gespeichert (Standard EIN).
+
+### Block ablängen (vertikal): Segmente aus DXF-Formen/3D-Modell + manuelle Blockhöhe (2026-10-08)
+- „Blocklänge aus Segment" bietet neben den Tragflächen-Segmenten jetzt auch die **Segmente der DXF-Formen**
+  (Segment-Spannweite) und des **3D-Modells** (Abstand der Schnittebenen) an. Die gewählte Quelle wird beim
+  Neuaufbau nachgezogen, wenn sich die Segmentlänge inzwischen geändert hat; fällt sie weg, gilt wieder „Frei".
+- Neue Auswahl **„Höhe des Rohblocks"**: aus Werkstoff (wie bisher) oder **manuell eingeben** (z. B. Reststück).
+  Gilt für G-Code, 3D-Vorschau und Simulation von „Block ablängen".
+
 ## [1.8] — 2026-10-06
 ### Build: Electron-Ausgabe für Windows 7 / 32 Bit (2026-10-04)
 - Neue `BUILD_TOOL_ELECTRON_WIN7.bat` / `build_tool_electron_win7.py`: eigenes Programmfenster auf Basis von

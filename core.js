@@ -146,6 +146,9 @@
     cfg: {
       twistRef: 0.25, points: 160,
       machineWidth: 900, blockZ: 20, blockZCenter: false, blockX: 0, blockY: 0, kerf: 1.2,
+      // Blockschnitte bei angehobenem Block (blockY > 0) nur bis knapp unter die
+      // Blockunterkante statt auf Y=0: blockCutLow an, Überschnitt blockCutOver (mm).
+      blockCutLow: false, blockCutOver: 1,
       // blockX = zusätzlicher Abstand X zwischen Nullpunkt und Blockrückkante
       // (0 = Nullpunkt direkt hinter dem Block; +Wert = Lücke davor).
       side: 'right',                      // 'right' | 'left' -> Spiegelung fürs Gegenstück
@@ -339,7 +342,7 @@
     // Blockzurichten: fertiger Block per zwei kerf-kompensierten Vertikalschnitten.
     // dist = X-Abstand des 1. Schnitts vom Nullpunkt, length = Blocklänge (Abstand
     // zum 2. Schnitt), height = Blockhöhe ab Y0 (Maschinen-Nullpunkt).
-    block: { dist: 20, length: 300, height: 60, feed: 300, lenSrc: 'free' },
+    block: { dist: 20, length: 300, height: 60, hSrc: 'mat', feed: 300, lenSrc: 'free' },
     // Guillotine: EIN gerader Schnitt — Höhe, X-Abstand zum Nullpunkt (Block unten)
     // und Winkel (0° = senkrecht; positiv kippt die Oberkante nach +X/hinten).
     // upMode = 'rapid' (Eilgang, Draht autom. AUS) | 'cut' (Vorschub, Draht autom. EIN) beim Rauffahren.

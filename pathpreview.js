@@ -74,6 +74,7 @@
     // Blockschnitt- und Schalen-Geometrie aus dem Kern (in der Design-exe vorhanden).
     const bc = (state.cfg.cutOrder && state.cfg.cutOrder !== 'none') ? App.blockCutGeom(cut, seg, proj) : null;
     const SC = state.cfg.shellCut ? App.shellCutGeom(cut, seg, proj) : null;
+    const yBC = App.blockCutY ? App.blockCutY() : 0;          // unteres Ende der Blockschnitte (0 bzw. knapp unter angehobenem Block)
     let mode = state.cfg.cutOrder || (bc ? 'before' : 'none');
     if (mode === 'wrap' && !bc) mode = 'before';
 
@@ -93,7 +94,7 @@
     };
     const emitBlockAt = pos => {                              // ein Blockschnitt (vorne oder hinten)
       go(P(mx(pos.l), safeY, mx(pos.r), safeY), true);        // horizontal an Schnittposition (Positionierfahrt)
-      go(P(mx(pos.l), 0, mx(pos.r), 0), false);               // vertikal runter (Schnitt)
+      go(P(mx(pos.l), yBC, mx(pos.r), yBC), false);           // vertikal runter (Schnitt)
       go(P(mx(pos.l), safeY, mx(pos.r), safeY), false);       // vertikal hoch (Schnitt)
     };
     const goSafeAtOrigin  = () => go(P(0, safeY, 0, safeY), true);
@@ -138,7 +139,7 @@
       goSafeAtOrigin();
       emitBlockAt(bc.front);
       go(P(mx(bc.rear.l), safeY, mx(bc.rear.r), safeY), true);
-      go(P(mx(bc.rear.l), 0, mx(bc.rear.r), 0), false);       // hinteres Blockende auf Null (Schnitt)
+      go(P(mx(bc.rear.l), yBC, mx(bc.rear.r), yBC), false);       // hinteres Blockende auf Null (Schnitt)
       go(P(mx(bc.rear.l), my(L[0].y), mx(bc.rear.r), my(R[0].y)), false); // hoch auf Profilanfang
       go(P(mx(L[0].x), my(L[0].y), mx(R[0].x), my(R[0].y)), true);        // horizontal zum Profilanfang
       contour();
@@ -147,13 +148,13 @@
     } else if (mode === 'wrap' && bc) {
       goSafeAtOrigin();
       go(P(mx(bc.rear.l), safeY, mx(bc.rear.r), safeY), true);
-      go(P(mx(bc.rear.l), 0, mx(bc.rear.r), 0), false);
+      go(P(mx(bc.rear.l), yBC, mx(bc.rear.r), yBC), false);
       go(P(mx(bc.rear.l), my(L[0].y), mx(bc.rear.r), my(R[0].y)), false);
       go(P(mx(L[0].x), my(L[0].y), mx(R[0].x), my(R[0].y)), true);
       contour(1, iLE);                                        // Oberseite bis zur Nase
       go(P(mx(bc.front.l), my(L[iLE].y), mx(bc.front.r), my(R[iLE].y)), false); // vor die Nase
       go(P(mx(bc.front.l), safeY, mx(bc.front.r), safeY), false);               // Blockvorderkante oben
-      go(P(mx(bc.front.l), 0, mx(bc.front.r), 0), false);                       // Blockvorderkante unten
+      go(P(mx(bc.front.l), yBC, mx(bc.front.r), yBC), false);                       // Blockvorderkante unten
       go(P(mx(bc.front.l), my(L[iLE].y), mx(bc.front.r), my(R[iLE].y)), false); // hoch auf Nasenhöhe
       go(P(mx(L[iLE].x), my(L[iLE].y), mx(R[iLE].x), my(R[iLE].y)), false);     // zurück zur Nase
       contour(iLE + 1, last);                                 // Unterseite zurück
@@ -192,6 +193,7 @@
     const bc = (state.cfg.cutOrder && state.cfg.cutOrder !== 'none') ? App.blockCutGeom(cut, seg, proj) : null;
     const bb = App.blockCutGeom(cut, seg, proj);
     const SC = state.cfg.shellCut ? App.shellCutGeom(cut, seg, proj) : null;
+    const yBC = App.blockCutY ? App.blockCutY() : 0;          // unteres Ende der Blockschnitte (0 bzw. knapp unter angehobenem Block)
     let mode = state.cfg.cutOrder || (bc ? 'before' : 'none');
     if ((mode === 'wrap' && (!bc || stackN > 1)) || (mode !== 'none' && mode !== 'after' && !bc)) mode = bc ? 'before' : 'none';
     const nearB = bc ? (front ? bc.front : bc.rear) : null, farB = bc ? (front ? bc.rear : bc.front) : null;
@@ -202,7 +204,7 @@
     const at = (l, r, yl, yr) => P(mx(l), yl, mx(r), yr);
     const emitBlockAt = pos => {
       go(at(pos.l, pos.r, safeY, safeY), true);
-      go(at(pos.l, pos.r, 0, 0), false);
+      go(at(pos.l, pos.r, yBC, yBC), false);
       go(at(pos.l, pos.r, safeY, safeY), false);
     };
     const emitShellCut = (sy, far) => {
@@ -226,7 +228,7 @@
         if (mode === 'before') { emitBlockAt(s0Near ? farB : nearB); if (s0Near) farCut = true; else nearCut = true; }
         const Bs = s0Near ? nearB : farB;
         go(at(Bs.l, Bs.r, safeY, safeY), true);
-        go(at(Bs.l, Bs.r, 0, 0), false);
+        go(at(Bs.l, Bs.r, yBC, yBC), false);
         if (s0Near) { nearCut = true; pos = 'nearKerf'; } else { farCut = true; pos = 'farKerf'; }
       }
       ps.forEach((q, k) => {
@@ -254,7 +256,7 @@
         const yel = my(L[ie].y), yer = my(R[ie].y);
         if (mode === 'wrap' && k === 0) {
           const B = sNear ? farB : nearB;
-          go(at(B.l, B.r, yel, yer), false); go(at(B.l, B.r, 0, 0), false); go(at(B.l, B.r, safeY, safeY), false);
+          go(at(B.l, B.r, yel, yer), false); go(at(B.l, B.r, yBC, yBC), false); go(at(B.l, B.r, safeY, safeY), false);
           if (sNear) farCut = true; else nearCut = true;
           pos = 'safe';
         } else if (sNear) { go(at(L[ie].x, R[ie].x, safeY, safeY), false); pos = 'safe'; }

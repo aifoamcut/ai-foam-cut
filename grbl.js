@@ -38,6 +38,11 @@
       this.onStatus = () => {}; this.onConsole = () => {}; this.onSetting = () => {};
       this._pollTimer = null;
       this.streaming = false; this.paused = false;
+      this.ov = { f: 100, s: 100 };   // Echtzeit-Overrides (%) Vorschub / Spindel=Heizung
+      this._ovT = 0;                  // Zeitpunkt der letzten eigenen Override-Änderung
+      this.kf = 1;                    // Vorschub-Faktor: F-Werte der noch zu sendenden Zeilen × kf
+      this.sentIdx = -1;              // Index der zuletzt gesendeten Programmzeile
+      this.realtime = false;          // true = Zeile für Zeile (Ping-Pong) statt Pakete
     }
 
     // Wartende ok-Quittungen auflösen und die Warteschlange leeren. WICHTIG bei
@@ -69,6 +74,10 @@
       await new Promise(r => setTimeout(r, 1500));
       this.buf = ''; this.flushPending('error:disconnected');
       this._pollTimer = setInterval(() => this.rt('?'), STATUS_POLL_MS);
+      // Overrides auf 100 % — die Steuerung kann aus einer früheren Sitzung noch
+      // einen anderen Wert halten (grblHAL wird beim Verbinden nicht zurückgesetzt).
+      this.ov = { f: 100, s: 100 }; this._ovT = performance.now();
+      await this.rt(0x90); await this.rt(0x99);
       this.onConsole(T('Verbunden (') + fw().name + ').', 'sys');
     }
 
@@ -140,6 +149,8 @@
         // Pn:<Buchstaben> = aktive Eingangspins (Endschalter X/Y/Z/A, P=Probe,
         // D=Tür, R=Reset, H=Hold). Fehlt das Feld, ist KEIN Pin aktiv -> ''.
         else if (p.startsWith('Pn:')) { st.pins = p.slice(3); }
+        // Ov:<Vorschub>,<Eilgang>,<Spindel> — aktuelle Overrides in %
+        else if (p.startsWith('Ov:')) { st.ov = p.slice(3).split(',').map(n => parseInt(n, 10)); }
       }
       return st;
     }
@@ -177,6 +188,55 @@
       await new Promise(r => setTimeout(r, 60));
       await this.rt(0x18);                         // Soft-Reset: Puffer leeren
       this.flushPending('reset');
+      this.ov = { f: 100, s: 100 };                // Soft-Reset setzt die Overrides auf 100 %
+    }
+
+    // Echtzeit-Override setzen (kind 'f' = Vorschub, 's' = Spindel = Drahtheizung),
+    // Ziel 10…200 %. GRBL kennt nur Schritte (100 % / ±10 / ±1) — aus dem
+    // zuletzt bekannten Stand wird die kürzeste Byte-Folge gebildet. Die Bytes
+    // wirken sofort (auch bei vollem Puffer). Genutzt für die Heizung: ein neuer
+    // S-Wert mitten in der Bewegung würde GRBL (außer im Lasermodus) bis zum
+    // leeren Puffer anhalten lassen -> Draht steht, Einbrand.
+    async setOv(kind, target) {
+      target = Math.max(10, Math.min(200, Math.round(target)));
+      const B = kind === 'f' ? [0x90, 0x91, 0x92, 0x93, 0x94] : [0x99, 0x9A, 0x9B, 0x9C, 0x9D];
+      let cur = this.ov[kind];
+      const seq = [];
+      if (target === 100 || Math.abs(target - 100) < Math.abs(target - cur)) { seq.push(B[0]); cur = 100; }
+      while (target - cur >= 10) { seq.push(B[1]); cur += 10; }
+      while (cur - target >= 10) { seq.push(B[2]); cur -= 10; }
+      while (cur < target) { seq.push(B[3]); cur++; }
+      while (cur > target) { seq.push(B[4]); cur--; }
+      this.ov[kind] = target; this._ovT = performance.now();
+      if (!seq.length || !this.connected) return;
+      try { await this.writer.write(new Uint8Array(seq)); } catch (e) {}
+    }
+    // Vorschub-Regler: F-Werte einer Programmzeile beim Senden mit kf skalieren
+    // (G94: mm/min, G93: 1/Blockdauer — beides proportional zur Geschwindigkeit),
+    // Koordinaten bleiben unangetastet. Unterschiede zwischen den Zeilen bleiben
+    // im Verhältnis erhalten. Bei G94 steht F modal oft nur einmal im Programm —
+    // ändert sich kf, bekommt die nächste Bewegungszeile ein F angehängt.
+    // m = Modalzustand des laufenden Streams {g93, motion, fBase, fSent}.
+    _adjustFeed(code, m) {
+      if (code[0] === '$') return code;
+      const bare = code.replace(/\([^)]*\)/g, '');
+      const up = bare.toUpperCase();
+      const reG = /G\s*0*(\d+(?:\.\d+)?)/g; let g;
+      while ((g = reG.exec(up))) {
+        const n = +g[1];
+        if (n === 93) m.g93 = true; else if (n === 94) m.g93 = false; else if (n <= 3) m.motion = n;
+      }
+      const k = this.kf, fmt = x => String(+x.toPrecision(6));
+      let hasF = false;
+      let out = bare.replace(/F\s*([-+]?\d*\.?\d+)/gi, (w, v) => {
+        hasF = true; m.fBase = +v; m.fSent = +v * k;
+        return k === 1 ? w : 'F' + fmt(+v * k);
+      });
+      if (!hasF && !m.g93 && m.fBase != null && m.motion >= 1 && /[XYZABCUVW]\s*[-+]?\.?\d/.test(up)) {
+        const f = m.fBase * k;
+        if (m.fSent == null || Math.abs(f - m.fSent) > 1e-9 * f) { out += ' F' + fmt(f); m.fSent = f; }
+      }
+      return out === bare ? code : out.trim();
     }
     jog(ax, dist, feed) { return this.send(`$J=G91 G21 ${ax}${dist.toFixed(3)} F${feed}`); }
     // Dauer-Handfahrt endet mit jogCancel: 0x85 bricht nur den Jog-Puffer sanft
@@ -202,6 +262,9 @@
     // Zeile einzeln auf ihr ok warten zu lassen. Beim Ping-Pong laeuft der
     // Planner bei kurzen Segmenten leer, sobald die USB-/Chromium-Latenz
     // steigt (neuere Chromium/Electron) -> Ruckeln bei kaum CPU-Last.
+    // Option „Echtzeit senden" (this.realtime): doch Ping-Pong — jede Zeile erst
+    // nach dem ok der vorigen. Weniger Vorlauf, damit die Vorschub-Regler schneller
+    // greifen; jederzeit umschaltbar, wirkt ab der nächsten Zeile.
     async stream(lines, onProgress, onDone) {
       this.streaming = true; this.paused = false;
       const total = lines.length;
@@ -211,6 +274,8 @@
       let used = 0, failed = false, waiter = null;
       const wake = () => { if (waiter) { const w = waiter; waiter = null; w(); } };
       const waitAck = () => new Promise(r => { waiter = r; });
+      const mod = { g93: false, motion: null, fBase: null, fSent: null };   // für _adjustFeed
+      this.sentIdx = -1;
       for (let i = 0; i < total; i++) {
         if (!this.streaming || failed) break;
         while (this.paused && this.streaming) { await new Promise(r => setTimeout(r, 100)); }
@@ -224,12 +289,22 @@
           onProgress(i + 1, total);
           this.paused = true; if (this.onPause) this.onPause(i + 1, total); continue;
         }
-        const len = enc.encode(code + '\n').length;
-        while (inflight.length && used + len > RX && this.streaming && !failed) await waitAck();
+        // Den Vorschub-Faktor erst anwenden, wenn die Zeile wirklich rausgeht
+        // (nach dem Warten auf Platz im Puffer) — so wirkt der Regler so früh wie möglich.
+        // Länge nach jedem Warten neu bestimmen (ein angehängtes F verlängert die Zeile).
+        let sendCode, len;
+        for (;;) {
+          const mTry = Object.assign({}, mod);
+          sendCode = this._adjustFeed(code, mTry);
+          len = enc.encode(sendCode + '\n').length;
+          if (!inflight.length || (!this.realtime && used + len <= RX) || !this.streaming || failed) { Object.assign(mod, mTry); break; }
+          await waitAck();
+        }
         if (!this.streaming || failed) break;
+        this.sentIdx = i;
         const item = { len, idx: i };
         inflight.push(item); used += len;
-        this.send(code, false).then(resp => {
+        this.send(sendCode, false).then(resp => {
           const k = inflight.indexOf(item);
           if (k >= 0) { inflight.splice(k, 1); used -= len; }
           if (resp.startsWith('error')) {
@@ -900,8 +975,94 @@
   function setMonContext(text) {
     const el = $('#simMCtx'); if (el) el.textContent = text || '';
   }
+  // Basiswerte des Programms je Zeile für die Vorschub-/Heizungs-Regler:
+  // v[i] = Schnittgeschwindigkeit (mm/min) der letzten Bewegung bis Zeile i
+  // (G94: F, G93: F × Weg des schnelleren Portals — wie die Ist-Anzeige),
+  // s[i] = aktiver S-Wert. Vor dem ersten Schnitt gilt der erste Wert.
+  let progBase = null, onProgChanged = null;
+  function analyzeProgram(lines) {
+    const L = getAxisLetters();
+    const pos = [0, 0, 0, 0];
+    let g93 = false, inc = false, motion = 0, F = null, S = null, lastV = null, vMax = 0;
+    const v = [], sv = [], seg = [];
+    lines.forEach(ln => {
+      const up = ln.split(';')[0].replace(/\([^)]*\)/g, '').toUpperCase();
+      const w = {}, re = /([A-Z])\s*([-+]?\d*\.?\d+)/g; let m;
+      while ((m = re.exec(up))) {
+        if (m[1] === 'G') {
+          const n = +m[2];
+          if (n === 93) g93 = true; else if (n === 94) g93 = false;
+          else if (n === 90) inc = false; else if (n === 91) inc = true; else if (n <= 3) motion = n;
+        } else w[m[1]] = +m[2];
+      }
+      if (w.S != null) S = w.S;
+      if (w.F != null) F = w.F;
+      const np = pos.slice(); let moved = false;
+      L.slice(0, 4).forEach((ax, k) => { if (w[ax] != null) { np[k] = inc ? pos[k] + w[ax] : w[ax]; moved = true; } });
+      if (moved && motion >= 1 && F) {
+        let sp = F;
+        if (g93) {
+          const len = Math.max(Math.hypot(np[0] - pos[0], np[1] - pos[1]), Math.hypot(np[2] - pos[2], np[3] - pos[3]));
+          sp = len > 1e-6 ? F * len : null;
+        }
+        if (sp) { lastV = sp; vMax = Math.max(vMax, sp); }
+      }
+      seg.push(moved ? { a: pos.slice(), b: np.slice() } : null);   // für die Positionsverfolgung
+      if (moved) for (let k = 0; k < 4; k++) pos[k] = np[k];
+      v.push(lastV); sv.push(S);
+    });
+    const fv = v.find(x => x != null) || null, fs = sv.find(x => x) || null;
+    for (let i = 0; i < v.length && v[i] == null; i++) v[i] = fv;
+    for (let i = 0; i < sv.length && !sv[i]; i++) sv[i] = fs;
+    return { v, s: sv, vMax, seg };
+  }
+
+  // ---- Ausgeführte Zeile aus der gemeldeten Position -------------------
+  // GRBL quittiert eine Zeile schon, wenn sie im Planer liegt — die gefahrene
+  // Zeile hängt also hinterher. Aus der Statusposition (alle 200 ms, Werk-
+  // koordinaten) wird das Programmsegment gesucht, auf dem der Draht gerade
+  // steht: vorwärts ab der zuletzt erkannten Zeile bis zur zuletzt gesendeten
+  // (nie rückwärts — bei hin und zurück gefahrenen Strecken zählt die erste).
+  // Ergebnis: Markierung im Programm, Basiswert der Regler, 3D-Monitor.
+  const TRACK_TOL2 = 0.1 * 0.1;      // „liegt auf dem Segment" (mm²)
+  const TRACK_MAX2 = 1.0 * 1.0;      // weiter weg -> keine Zuordnung (z. B. anderer Nullpunkt)
+  let execIdx = -1, tracking = false;
+  // Schalter „3D-Simulation während des Schnitts": Monitor folgt der Maschine
+  // (EIN) oder bleibt während des Schnitts stehen und wird nicht gezeichnet (AUS).
+  // Markierung und Regler folgen der Position in beiden Fällen.
+  const LS_MON_FOLLOW = 'hotwire-monFollow';
+  let monFollow = true;
+  try { monFollow = localStorage.getItem(LS_MON_FOLLOW) !== '0'; } catch (e) {}
+  function setTracking(on) {
+    tracking = !!on;
+    if (window.Sim3D && Sim3D.setMonitorFrozen) Sim3D.setMonitorFrozen(tracking && !monFollow);
+  }
+  function trackExec(p) {
+    if (!tracking || !progBase || !progBase.seg) return;
+    const segs = progBase.seg;
+    const k0 = Math.max(0, execIdx);
+    const k1 = Math.min(segs.length - 1, Math.max(k0, grbl.sentIdx) + 1, k0 + 600);
+    let best = -1, bestD = Infinity, bestU = 0;
+    for (let k = k0; k <= k1; k++) {
+      const sg = segs[k]; if (!sg) continue;
+      let ab2 = 0, ap = 0;
+      for (let j = 0; j < 4; j++) { const d = sg.b[j] - sg.a[j]; ab2 += d * d; ap += (p[j] - sg.a[j]) * d; }
+      const u = ab2 > 1e-12 ? Math.max(0, Math.min(1, ap / ab2)) : 1;
+      let d2 = 0;
+      for (let j = 0; j < 4; j++) { const q = sg.a[j] + u * (sg.b[j] - sg.a[j]) - p[j]; d2 += q * q; }
+      if (d2 < TRACK_TOL2) { best = k; bestU = u; bestD = d2; break; }
+      if (d2 < bestD) { bestD = d2; best = k; bestU = u; }
+    }
+    if (best < 0 || (bestD >= TRACK_TOL2 && bestD > TRACK_MAX2)) return;
+    if (best !== execIdx) { execIdx = best; highlightProgLine(best); }
+    if (monFollow && window.Sim3D && Sim3D.setMonitorExec) Sim3D.setMonitorExec(best, bestU);
+  }
+
   function setProgram(lines, info) {
     gcodeLines = lines;
+    progBase = lines.length ? analyzeProgram(lines) : null;
+    execIdx = -1; setTracking(false);
+    if (onProgChanged) onProgChanged();
     $('#mFileInfo').textContent = info;
     renderProgView(lines);
     $('#mStart').disabled = !lines.length;
@@ -1172,7 +1333,121 @@
         }
         if (ok) grbl._feedPrev = { t: now, p: tp };
       }
+
+      // Override-Stand der Steuerung übernehmen (z. B. nach Soft-Reset/Alarm oder
+      // Änderung am Gerät) — nicht direkt nach einer eigenen Änderung, solange der
+      // gemeldete Wert noch der alte sein kann.
+      if (st.ov && st.ov.length >= 3 && performance.now() - grbl._ovT > 1000) {
+        const f = st.ov[0], sp = st.ov[2];
+        if (f > 0 && sp > 0 && (f !== grbl.ov.f || sp !== grbl.ov.s)) { grbl.ov.f = f; grbl.ov.s = sp; }
+      }
+      // Ausgeführte Zeile verfolgen (Werkkoordinaten in Slot-Reihenfolge wie im G-Code).
+      if (tracking) {
+        const wp = getAxisLetters().slice(0, 4).map((l, i) => pos[bitOf(l, i)]);
+        if (wp.length === 4 && wp.every(x => x != null && !isNaN(x))) trackExec(wp);
+        // Programm fertig gesendet und Maschine steht -> Verfolgung beenden.
+        if (!grbl.streaming && /Idle/.test(st.state)) {
+          setTracking(false);
+          if (execIdx >= 0) highlightProgLine(gcodeLines.length);
+        }
+      }
+      if (grbl.streaming || tracking) syncOvUi();
     };
+
+    // ---- Vorschub-/Heizungs-Regler (echte Werte) ---------------------------
+    // Ändern Geschwindigkeit und Heizleistung WÄHREND des Schnitts; Koordinaten
+    // (und damit Abbrand) bleiben unangetastet. Angezeigt/eingestellt werden die
+    // echten Werte der gerade gesendeten Programmzeile, Unterschiede zwischen den
+    // Zeilen bleiben im Verhältnis erhalten:
+    //  · Vorschub (mm/min): die F-Werte der noch nicht gesendeten Zeilen werden
+    //    mit grbl.kf multipliziert (Grbl._adjustFeed) — wirkt, sobald die bereits
+    //    in der Steuerung gepufferten Zeilen abgefahren sind.
+    //  · Heizung (S-Wert): über den Spindel-Override (10–200 % in 1-%-Schritten,
+    //    sofort). Ein neues S im laufenden G-Code würde GRBL anhalten lassen.
+    // Doppelklick = G-Code-Wert, Mausrad = feiner Schritt.
+    const fR = $('#mFeedOv'), fN = $('#mFeedOvNum'), hR = $('#mHeatOv'), hN = $('#mHeatOvNum');
+    // Regler nur mit „Echtzeit senden" bedienbar; ausgeschaltet -> G-Code-Werte.
+    const mfBox = $('#mMonFollow');
+    if (mfBox) {
+      mfBox.checked = monFollow;
+      mfBox.addEventListener('change', () => {
+        monFollow = mfBox.checked;
+        try { localStorage.setItem(LS_MON_FOLLOW, monFollow ? '1' : '0'); } catch (e) {}
+        setTracking(tracking);                 // Monitor sofort anhalten bzw. wieder zeichnen
+        log(monFollow ? T('3D-Simulation während des Schnitts: EIN.') : T('3D-Simulation während des Schnitts: AUS.'), 'sys');
+      });
+    }
+    const rtBox = $('#mRealtime'), LS_REALTIME = 'hotwire-realtimeSend';
+    try { grbl.realtime = localStorage.getItem(LS_REALTIME) === '1'; } catch (e) {}
+    if (rtBox) {
+      rtBox.checked = grbl.realtime;
+      rtBox.addEventListener('change', () => {
+        grbl.realtime = rtBox.checked;
+        try { localStorage.setItem(LS_REALTIME, grbl.realtime ? '1' : '0'); } catch (e) {}
+        if (!grbl.realtime) { grbl.kf = 1; if (grbl.ov.s !== 100) grbl.setOv('s', 100); }
+        log(grbl.realtime ? T('Echtzeit senden: EIN (Zeile für Zeile), Regler aktiv.')
+                          : T('Echtzeit senden: AUS (Pakete), Regler auf G-Code-Werte.'), 'sys');
+        syncOvUi();
+      });
+    }
+    const curIdx = () => (tracking && execIdx >= 0 ? execIdx : grbl.streaming && grbl.sentIdx >= 0 ? grbl.sentIdx : 0);
+    const baseAt = arr => (progBase && arr.length ? arr[Math.min(curIdx(), arr.length - 1)] : null);
+    const mark = (el, changed) => { if (el) el.style.color = changed ? '#e8a33d' : ''; };   // ≠ G-Code = auffällig
+    function syncOvUi() {
+      if (!fR || !hR) return;
+      const bv = progBase ? baseAt(progBase.v) : null, bs = progBase ? baseAt(progBase.s) : null;
+      fR.disabled = fN.disabled = !bv || !grbl.realtime;
+      if (bv) {
+        fR.min = Math.max(1, Math.round(progBase.vMax * 0.1)); fR.max = Math.max(10, Math.round(progBase.vMax * 3));
+        const val = Math.round(bv * grbl.kf);
+        if (!fR.matches(':active')) fR.value = val;
+        if (document.activeElement !== fN) fN.value = val;
+        mark(fN, Math.abs(grbl.kf - 1) > 1e-9);
+      } else fN.value = '';
+      hR.disabled = hN.disabled = !bs || !grbl.realtime;
+      if (bs) {
+        hR.min = Math.max(1, Math.ceil(bs * 0.1)); hR.max = Math.round(bs * 2);
+        const val = Math.round(bs * grbl.ov.s / 100);
+        if (!hR.matches(':active')) hR.value = val;
+        if (document.activeElement !== hN) hN.value = val;
+        mark(hN, grbl.ov.s !== 100);
+      } else hN.value = '';
+    }
+    function setFeed(val) {
+      const bv = progBase && baseAt(progBase.v);
+      if (!bv || !isFinite(val)) return syncOvUi();
+      val = Math.max(+fR.min, Math.min(+fR.max, val));
+      grbl.kf = val / bv;
+      syncOvUi();
+    }
+    function setHeat(val) {
+      const bs = progBase && baseAt(progBase.s);
+      if (!bs || !isFinite(val)) return syncOvUi();
+      grbl.setOv('s', Math.max(10, Math.min(200, Math.round(val / bs * 100))));
+      syncOvUi();
+    }
+    if (fR && hR) {
+      fR.addEventListener('input', () => setFeed(+fR.value));
+      fN.addEventListener('change', () => setFeed(+fN.value));
+      fR.addEventListener('dblclick', () => { grbl.kf = 1; syncOvUi(); });
+      fR.addEventListener('wheel', e => { e.preventDefault(); setFeed(+fR.value + (e.deltaY < 0 ? 5 : -5)); }, { passive: false });
+      hR.addEventListener('input', () => setHeat(+hR.value));
+      hN.addEventListener('change', () => setHeat(+hN.value));
+      hR.addEventListener('dblclick', () => setHeat(baseAt(progBase.s)));
+      // Mausrad: ein Override-Schritt (1 %) in S umgerechnet
+      hR.addEventListener('wheel', e => {
+        e.preventDefault();
+        const bs = progBase && baseAt(progBase.s); if (!bs) return;
+        grbl.setOv('s', Math.max(10, Math.min(200, grbl.ov.s + (e.deltaY < 0 ? 1 : -1)))); syncOvUi();
+      }, { passive: false });
+      [fN, hN].forEach(n => n.addEventListener('keydown', e => { if (e.key === 'Enter') n.blur(); }));
+    }
+    { const b100 = $('#mOv100'); if (b100) b100.onclick = () => { grbl.kf = 1; grbl.setOv('s', 100); syncOvUi(); }; }
+    onProgChanged = () => {
+      if (!grbl.streaming) { grbl.kf = 1; if (grbl.ov.s !== 100) grbl.setOv('s', 100); }
+      syncOvUi();
+    };
+    syncOvUi();
 
     grbl.onSetting = (line) => {
       const m = line.match(/^\$(\d+)=(.*)$/);
@@ -1221,6 +1496,7 @@
         try {
           await grbl.connect(parseInt($('#mBaud').value, 10));
           $('#mConnect').textContent = T('Trennen');
+          syncOvUi();
           // Aktuelle $$-Einstellungen einlesen, u. a. $3 für die Invert-Checkboxen.
           try { await grbl.send('$$'); } catch (e) {}
         } catch (e) { log(e.message, 'err'); alert(e.message); }
@@ -1380,8 +1656,10 @@
       const rb = $('#mResume'); if (rb) rb.style.display = 'none';
       setMonPlaying(false);                       // laufende Vorschau beenden
       highlightProgLine(0);
-      // Der 3D-Monitor ist bewusst NICHT mit der Maschine verknüpft — er dient
-      // nur der G-Code-Prüfung vor dem Schnitt (Vorschau über „Simulieren").
+      // Positionsverfolgung: Markierung, Regler und 3D-Monitor folgen der
+      // gemeldeten Maschinenposition (trackExec), nicht der Sende-Quittung.
+      execIdx = -1; setTracking(true);
+      if (monFollow && window.Sim3D && Sim3D.setMonitorExec) Sim3D.setMonitorExec(0, 0);
       // Auto-Pause (M0): „Fortsetzen"-Button zeigen, Pause-Button sperren.
       grbl.onPause = (i, total) => {
         const b = $('#mResume'); if (b) b.style.display = '';
@@ -1391,16 +1669,16 @@
       grbl.stream(gcodeLines,
         (i, total) => {
           $('#mProg').value = i; $('#mProgText').textContent = `${i} / ${total}`;
-          // Aktuelle Zeile im Programm markieren und mitscrollen. Der 3D-Monitor
-          // ist nicht mit der Maschine verknüpft (nur Vorschau vor dem Schnitt).
-          highlightProgLine(i - 1);
+          // Solange keine Position zugeordnet ist (z. B. abweichender Nullpunkt):
+          // Markierung nach Quittung wie bisher. Sonst führt trackExec.
+          if (execIdx < 0) highlightProgLine(i - 1);
         },
         () => {
           $('#mStart').disabled = false; $('#mPause').disabled = true;
           { const ab = $('#mAbort'); if (ab) ab.disabled = true; }
           $('#mPause').textContent = T('Pause');
           const b = $('#mResume'); if (b) b.style.display = 'none';
-          highlightProgLine(gcodeLines.length);   // alle Zeilen erledigt, Markierung aufheben
+          if (execIdx < 0) highlightProgLine(gcodeLines.length);   // sonst hebt trackExec am Ende auf
           log(T('Programm fertig.'), 'sys');
         });
     }
@@ -1436,6 +1714,8 @@
       abortBtn.disabled = true; $('#mPause').textContent = T('Pause');
       const rb = $('#mResume'); if (rb) rb.style.display = 'none';
       await grbl.abort();                          // sofortiger Stopp, Puffer leeren
+      setTracking(false);                          // Monitor/Markierung bleiben an der Abbruchstelle
+      syncOvUi();                                  // Soft-Reset -> Overrides wieder 100 %
       const gz = $('#mGoZero'); if (gz) gz.style.display = '';
       log(T('Schnitt sofort abgebrochen, Draht AUS. Zum Zurückfahren „Fahren auf Nullpunkt" drücken; die Handfahrt entsperrt die Steuerung automatisch.'), 'sys');
     }; }

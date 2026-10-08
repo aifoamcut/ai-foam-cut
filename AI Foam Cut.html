@@ -451,6 +451,14 @@
   .jog-axes .col .tw{text-align:center;font-size:10px;color:var(--muted);margin-top:-3px}
   #machineView input[type=range]{flex:1;accent-color:var(--wire)}
   .wire-val{font:18px Consolas,monospace;min-width:52px;text-align:right;color:var(--accent2)}
+  .ovrow{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:4px 10px}
+  .ovrow input[type=range]{width:100%;min-width:0;accent-color:var(--accent2)}
+  .ovrow #mOv100{grid-column:4;grid-row:1 / span 2;align-self:center}
+  .ovrow .ovlbl{font-size:12px;color:var(--muted)}
+  .ovexp{margin-top:9px;padding:4px 8px;border:1px solid #e8a33d;border-radius:5px;font-size:12px;color:#e8a33d;background:rgba(232,163,61,.08)}
+  .ovrt{display:flex;align-items:center;gap:6px;margin-top:9px;font-size:12px;color:var(--muted);cursor:pointer}
+  .ovrow .ovnum{font-size:12px;color:var(--muted);white-space:nowrap}
+  .ovrow .ovnum input{width:74px;font:15px Consolas,monospace;color:var(--accent2);text-align:right;background:#0c0f13;border:1px solid var(--line);border-radius:5px;padding:2px 5px}
   #mProg{width:100%;height:11px;accent-color:var(--accent2)}
   .grblConsole{background:#080b0e;border:1px solid var(--line);border-radius:6px;height:170px;
     overflow:auto;padding:7px 9px;font:12px/1.45 Consolas,"Cascadia Code",monospace;
@@ -1332,6 +1340,19 @@
                 <span id="mProgText" class="hint">0 / 0</span>
               </div>
               <progress id="mProg" value="0" max="1"></progress>
+              <div class="ovexp">⚠ Experimentell — noch nicht an der Maschine getestet: Echtzeit senden, Regler für Vorschub/Heizung und 3D-Simulation während des Schnitts.</div>
+              <label class="ovrt" title="AUS: Zeilen werden paketweise vorausgeschickt (füllt den Empfangspuffer der Steuerung, läuft am ruhigsten). EIN: jede Zeile erst nach dem ok der vorigen — weniger Vorlauf, die Regler für Vorschub und Heizung sind nur dann bedienbar."><input type="checkbox" id="mRealtime"> Echtzeit senden (Zeile für Zeile) — Regler aktiv</label>
+              <label class="ovrt" style="margin-top:4px" title="EIN: der 3D-Monitor zeigt während des Schnitts die tatsächlich gefahrene Stelle (aus der Maschinenposition). AUS: der Monitor bleibt während des Schnitts stehen und wird nicht gezeichnet (spart Rechenzeit). Jederzeit umschaltbar."><input type="checkbox" id="mMonFollow" checked> 3D-Simulation während des Schnitts</label>
+              <div class="ovrow" style="margin-top:6px">
+                <span class="ovlbl" title="Schnittgeschwindigkeit der gerade gesendeten Zeile. Verstellen multipliziert die F-Werte aller folgenden Zeilen mit demselben Faktor; Koordinaten bleiben unverändert.">Vorschub</span>
+                <input id="mFeedOv" type="range" min="1" max="1000" value="0" disabled title="Doppelklick = G-Code-Wert · Mausrad = ±5 mm/min">
+                <span class="ovnum"><input id="mFeedOvNum" type="number" min="1" step="1" disabled> mm/min</span>
+                <span class="ovlbl" title="S-Wert der Drahtheizung (M3 S…). Wirkt sofort über den Spindel-Override der Steuerung (10–200 % des G-Code-Werts, 1-%-Schritte).">Heizung</span>
+                <input id="mHeatOv" type="range" min="1" max="1000" value="0" disabled title="Doppelklick = G-Code-Wert · Mausrad = ±1 %">
+                <span class="ovnum">S <input id="mHeatOvNum" type="number" min="1" step="1" disabled></span>
+                <button id="mOv100" title="Vorschub und Heizung wieder auf die Werte aus dem G-Code setzen">G-Code-Werte</button>
+              </div>
+              <div class="hint">Regler nur bei „Echtzeit senden". Echte Werte der gerade gesendeten Zeile, verstellbar während des Schnitts; Koordinaten (und Abbrand) bleiben unverändert. Vorschub: die F-Werte der folgenden Zeilen werden umgeschrieben — wirkt nach den Zeilen, die die Steuerung schon geplant hat. Heizung: wirkt sofort. Begrenzt durch $110… bzw. $30.</div>
             </div>
 
             <div class="mcard">
@@ -1562,7 +1583,7 @@
   </div>
   <div class="body"><canvas id="cSeg3d"></canvas></div>
 </div>
-<script src="i18n.js?v=20261006schale7"></script>
+<script src="i18n.js?v=20261008bcl2rm"></script>
 <script src="safety.js?v=20261004gerade2"></script>
 <script src="airfoil.js?v=20261004gerade2"></script>
 <script src="materials.js?v=20261004gerade2"></script>
@@ -1573,21 +1594,21 @@
 <script src="pc2.js?v=20261004gerade2"></script>
 <script src="dxf.js?v=20261004gerade2"></script>
 <script src="hotwire.js?v=20261004gerade2"></script>
-<script src="hotwire_gcode.js?v=20261006schale7"></script>
+<script src="hotwire_gcode.js?v=20261008bcl"></script>
 <script src="sweeprot.js?v=20261004gerade2"></script>
 <script src="earcut.js?v=20261004gerade2"></script>
-<script src="grbl.js?v=20261004gerade2"></script>
+<script src="grbl.js?v=20261008trk2"></script>
 <script src="viewcube.js?v=20261005home"></script>
-<script src="sim3d.js?v=20261005home"></script>
+<script src="sim3d.js?v=20261008trk2"></script>
 <script src="simmodel.js?v=20261004gerade2"></script>
 <script src="model3d.js?v=20261005stlprev"></script>
 <script src="model3d_gcode.js?v=20261006schale7"></script>
-<script src="core.js?v=20261006schale7"></script>
+<script src="core.js?v=20261008bcl"></script>
 <script src="cad.js?v=20261004gerade2"></script>
-<script src="gcode.js?v=20261006schale7"></script>
+<script src="gcode.js?v=20261008bcl"></script>
 <script src="spars.js?v=20261004gerade2"></script>
 <script src="ribs.js?v=20261005home"></script>
-<script src="dxfshapes.js?v=20261004gerade2"></script>
+<script src="dxfshapes.js?v=20261008bcl2"></script>
 <script src="wingimport.js?v=20261004gerade2"></script>
 <script src="filesys.js?v=20261004gerade2"></script>
 <script src="stlpreview.js?v=20261005stlprev2"></script>
@@ -1595,10 +1616,10 @@
 <script src="gmfc.js?v=20261004gerade2"></script>
 <script src="render.js?v=20261005home"></script>
 <script src="measure2d.js?v=20261004gerade2"></script>
-<script src="sidebar.js?v=20261006schale7"></script>
-<script src="pathpreview.js?v=20261006schale7"></script>
-<script src="gcodegen.js?v=20261005guill3"></script>
-<script src="cutpanel.js?v=20261005home"></script>
+<script src="sidebar.js?v=20261008bcl2"></script>
+<script src="pathpreview.js?v=20261008bcl"></script>
+<script src="gcodegen.js?v=20261008bcl"></script>
+<script src="cutpanel.js?v=20261008abl"></script>
 <script src="stege.js?v=20261004gerade2"></script>
 <script src="kernteile.js?v=20261004gerade2"></script>
 <script src="pc2wing.js?v=20261004gerade2"></script>

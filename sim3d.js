@@ -856,7 +856,7 @@
     // Nur den jeweils sichtbaren Viewport zeichnen.
     if (document.getElementById('gcodeView').classList.contains('active')) draw();
     const mv = document.getElementById('cutView');   // 3D-Monitor liegt jetzt im Reiter „Schneiden"
-    if (monMounted && mv && mv.classList.contains('active')) drawMonitor();
+    if (monMounted && mv && mv.classList.contains('active') && (!monFrozen || MON.playing)) drawMonitor();
   }
 
   // ---------- Bedienelemente --------------------------------------------
@@ -1093,6 +1093,25 @@
   }
 
   function stopMonitor() { MON.playing = false; MON.t = 0; MON.pos = null; }
+  // Monitor anhalten (nicht mehr neu zeichnen) — Schalter „3D-Simulation während
+  // des Schnitts" AUS spart während des Schnitts die Rechenzeit. Eine von Hand
+  // gestartete Vorschau (MON.playing) wird trotzdem gezeichnet.
+  let monFrozen = false;
+  function setMonitorFrozen(on) { monFrozen = !!on; }
+  // Parallel zum Schnitt: Monitor an die tatsächlich gefahrene Stelle setzen.
+  // line = 0-basierte Programmzeile (aus der Maschinenposition ermittelt),
+  // u = Anteil innerhalb dieser Zeile. Zeilen ohne eigene Bewegung -> Ende der
+  // letzten Bewegung davor. Beendet eine laufende Vorschau.
+  function setMonitorExec(line, u) {
+    if (!MON.ready) return;
+    const mv = MON.moves;
+    let lo = 0, hi = mv.length - 1, k = -1;
+    while (lo <= hi) { const md = (lo + hi) >> 1; if (mv[md].line <= line) { k = md; lo = md + 1; } else hi = md - 1; }
+    // mehrere Bewegungen je Zeile (z. B. Verweilen): die erste dieser Zeile nehmen
+    while (k > 0 && mv[k - 1].line === line) k--;
+    MON.playing = false; MON.t = 0;
+    MON.pos = k < 0 ? { i: 0, u: 0 } : { i: k, u: mv[k].line === line ? Math.max(0, Math.min(1, u || 0)) : 1 };
+  }
   function monitorReady() { return MON.ready; }
   function setMonitorEnd(fn) { monEndCb = fn || (() => {}); }
   function setMonitorPause(fn) { monPauseCb = fn || (() => {}); }
@@ -1128,6 +1147,6 @@
     redrawAll();
   }
   window.Sim3D = { init, load, loadMoves, resize: fit, play: () => setPlaying(true), setColors,
-                   mountMonitor, loadMonitor, playMonitor, stopMonitor, monitorReady,
+                   mountMonitor, loadMonitor, playMonitor, stopMonitor, monitorReady, setMonitorExec, setMonitorFrozen,
                    setMonitorEnd, setMonitorPause, seekToLine, refreshWarn };
 })();

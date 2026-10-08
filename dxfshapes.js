@@ -847,6 +847,7 @@
       + 'geht es direkt in die Form. „Nach Formschnitt": erst die Form, dann hinten und vorne. „Nur Blockschnitt": ohne Form. '
       + 'Dieselbe Einstellung wie „Schnittreihenfolge" im Reiter „G-Code".');
     if ((state.cfg.cutOrder || 'none') !== 'none') {
+      if (App.blockCutLowRows) App.blockCutLowRows(op.body, () => { App.buildSidebar(); renderDxf(); App.render(); });
       const P = dxfProjection();
       if (P && P.blockCut) {
         // Verjüngter Block: X je Turm verschieden (links/rechts), Länge je Profil.

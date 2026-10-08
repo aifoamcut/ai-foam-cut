@@ -83,6 +83,15 @@
   function machX(o, x) { return (o && o.sx > 0) ? x - o.x : o.x - x; }
   // Sicherheitshöhe (Maschinen-Y) über der Blockoberkante: Blockhöhe + Zugabe,
   // zzgl. Höhenabstand des Blocks vom Nullpunkt (blockY).
+  /* Unteres Ende (Maschinen-Y) aller vertikalen Blockschnitte. Standard Y=0; mit
+   * „Blockschnitt nur durch den Werkstoff" (cfg.blockCutLow) bei angehobenem Block
+   * (blockY) nur bis Blockunterkante − Überschnitt (cfg.blockCutOver, Standard 1 mm),
+   * nie unter 0. */
+  function blockCutY() {
+    if (!state.cfg.blockCutLow) return 0;
+    const over = Math.max(0, state.cfg.blockCutOver != null ? +state.cfg.blockCutOver || 0 : 1);
+    return Math.max(0, (+state.cfg.blockY || 0) - over);
+  }
   function safeHeight() { return (state.cfg.blockY || 0) + App.blockH() + (state.material.safeH || 0); }
   // Wirksamer Vorschub AUSSERHALB des Blocks (Anfahrt/Auslauf in Luft), gedeckelt
   // auf den Maschinen-Max.-Vorschub — dieser gilt fürs SCHNELLERE (äußere) Portal.
@@ -262,7 +271,7 @@
      Blockprogramm mit passendem Körper simuliert. */
   function buildBlockScene() {
     const mw = state.cfg.machineWidth;
-    const d1 = state.block.dist, d2 = d1 + state.block.length, H = App.blockH();   // Blockhöhe = Werkstoff
+    const d1 = state.block.dist, d2 = d1 + state.block.length, H = App.blockCutH ? App.blockCutH() : App.blockH();   // Blockhöhe = Werkstoff oder manuell
     return {
       machineWidth: mw,
       ax: { x: state.cfg.axX, y: state.cfg.axY, u: state.cfg.axU, v: state.cfg.axV },
@@ -936,7 +945,7 @@
   Object.assign(App, { buildBlockHScene, buildBlockScene, buildCalibScene, buildGuillotineScene, buildNegScene, buildScene });
   Object.assign(App, { applyDemoUi, demoMaskView, demoOn, download, downloadNamed, feedJumpLines, maskGcodeLine, negProjection, outsideFeed });
   Object.assign(App, { askAxisNames, exportGcodeAxes, remapAxisWords });
-  Object.assign(App, { busy, promptFileName, safeHeight, saveFilePicker, setGcode, setGcodeEditMode, shellCutGeom, sweepProj2, toast, withBusy });
+  Object.assign(App, { blockCutY, busy, promptFileName, safeHeight, saveFilePicker, setGcode, setGcodeEditMode, shellCutGeom, sweepProj2, toast, withBusy });
   Object.assign(App, { gcodeSceneRefresh, loadGcodeText, sceneForSource });
   Object.defineProperty(App, 'toastT', { get: () => toastT, set: v => { toastT = v; }, enumerable: true, configurable: true });
 })();
