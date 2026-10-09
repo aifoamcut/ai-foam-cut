@@ -4,6 +4,44 @@ Alle nennenswerten Änderungen an **AI Foam Cut** werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/).
 Neueste Einträge oben.
 
+## [Unveröffentlicht]
+### Windows 7: Zahlenfelder wieder per Tastatur beschreibbar (2026-10-09)
+- In der Win7-32-Bit-Ausgabe (Electron 22) nahmen Zahlenfelder der Seitenleisten (z. B. Pfeilwinkel der
+  Tragfläche) keine Ziffern von der Tastatur an — nur die ▲/▼-Pfeile wirkten. Auf Windows 7/8 wird der
+  Bildschirmtastatur-Hinweis `inputmode="decimal"` jetzt nicht mehr gesetzt (i18n.js, lädt als erstes Skript);
+  auf Windows 10/11 bleibt alles unverändert.
+
+### Profildatenbank: KFm-Gestalter mit symmetrischen Stufen, Nasenform und Live-Polare (2026-10-08)
+- Stufen: neue Seite **„oben + unten"** (symmetrische Stufe an derselben Stelle), Knopf **„Alle symmetrisch"**,
+  bis zu 8 Stufen. **„+ Stufe"** setzt die neue Stufe jetzt hinter die letzte (halber Weg zur Endleiste) statt auf
+  50 % — vorher lag sie auf der ersten und war nicht als eigene Stufe zu sehen. Neue Vorlage „Symmetrisch — je zwei
+  Stufen oben und unten bei 50 % und 75 %"; KFm4 nutzt die symmetrische Stufe. Name z. B. „KFm sym 11% (s50 s75)".
+- Nase: neue Einstellung **„Nasenspitze"** — **mittig (Rundung symmetrisch, Standard)**, auf Mitte der Grundplatte
+  oder **frei** mit „Höhe der Nasenspitze" in % der Nasendicke. Bei elliptischer und spitzer Nase **Nasenlänge oben
+  und unten getrennt** einstellbar → asymmetrische Nasen.
+- **Ausrichtung: die Grundplatte liegt immer bei 0° Anstellwinkel** — auch bei mehreren Stufen auf einer Seite und
+  symmetrischer Nase. Die Nase wird fürs Ausrichten nicht herangezogen: Stufen-/Plattenprofile werden beim Normieren
+  nur verschoben und skaliert, nicht gedreht (Airfoil.normalize mit `keepAlign`) — im Gestalter, beim Speichern in der
+  Datenbank und beim Einlesen der .dat (Namen KFm…/Platte/Knickplatte). Bei der Knickplatte liegt das vordere
+  Plattenstück waagrecht.
+- NeuralFoil rechnet Profile, deren Sehne (Nase → Endleistenmitte) nicht auf der x-Achse liegt, intern zur Sehne
+  gedreht und gibt α bezogen auf die x-Achse des Profils aus — die Polaren dieser Profile beziehen sich damit auf die
+  waagrechte Grundplatte (auch unter „Profilpolaren rechnen" und im Aerodynamik-Reiter).
+- **Anstellwinkel vorgeben**: im Polarfeld **α von / bis / Schritt** (bezogen auf die waagrechte Grundplatte) und
+  **„Punkt bei α"** — zeigt cl, cd, cl/cd und cm genau bei diesem Winkel und markiert den Punkt als Ring in allen
+  Diagrammen.
+- **Zwischenstände**: „📌 Zwischenstand merken" behält die aktuelle Polare samt Entwurfsmaßen als eigene farbige
+  Vergleichskurve (bis zu 8), je Stand ein-/ausblendbar, mit ↺ in den Entwurf zurückholbar, mit ✕ entfernbar.
+- **Polare live**: im freien Feld rechts neben der Eingabemaske rechnet NeuralFoil bei jeder Änderung mit —
+  cl über cd, cl über α und Gleitzahl über α, Re-Zahl wählbar, cl max / beste Gleitzahl / cd min als Text; der
+  vorige Stand bleibt gestrichelt zum Vergleich stehen. (Das Netz sieht die Stufen über eine glatte Ersatzkontur —
+  zum Vergleichen der Varianten gedacht.)
+- Polarfeld wie im Reiter „Aerodynamik": **1–4 Diagramme**, je Diagramm **auswählbar** (Polare cl/cd, cl über α,
+  Gleitzahl über α bzw. cl, Steigzahl cl¹·⁵/cd, cd, cm, Umschlag oben/unten), mit Gitter und Achsenwerten.
+  **Rad = Zoom** um den Zeiger, **Ziehen = Achse strecken/stauchen** (waagerecht X, senkrecht Y), Shift-/Rechts-Ziehen =
+  verschieben, Doppelklick = alles, Fadenkreuz mit Werten, Klick auf die Legende = Kurve ein/aus. Der Zoom bleibt
+  beim Weiterrechnen erhalten.
+
 ## [1.9] — 2026-10-08
 ### Blockschnitt nur durch den Werkstoff bei angehobenem Block (2026-10-08)
 - Neue Option direkt unter **„Schnittreihenfolge"** (nur sichtbar, wenn ein Blockschnitt gewählt ist; ebenso

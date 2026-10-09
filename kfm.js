@@ -19,14 +19,15 @@
     { id: 'kfm1', name: 'KFm1', label: 'KFm1 — Stufe unten bei 40 %', t0: 3, steps: [{ side: 'bot', pos: 40, h: 3 }], kinks: [] },
     { id: 'kfm2', name: 'KFm2', label: 'KFm2 — Stufe oben bei 50 %', t0: 3, steps: [{ side: 'top', pos: 50, h: 3 }], kinks: [] },
     { id: 'kfm3', name: 'KFm3', label: 'KFm3 — zwei Stufen oben bei 50 % und 75 %', t0: 3, steps: [{ side: 'top', pos: 50, h: 3 }, { side: 'top', pos: 75, h: 3 }], kinks: [] },
-    { id: 'kfm4', name: 'KFm4', label: 'KFm4 — Stufen oben und unten bei 50 %', t0: 3, steps: [{ side: 'top', pos: 50, h: 3 }, { side: 'bot', pos: 50, h: 3 }], kinks: [] },
+    { id: 'kfm4', name: 'KFm4', label: 'KFm4 — Stufen oben und unten bei 50 %', t0: 3, steps: [{ side: 'both', pos: 50, h: 3 }], kinks: [] },
+    { id: 'sym2', name: 'KFm sym', label: 'Symmetrisch — je zwei Stufen oben und unten bei 50 % und 75 %', t0: 3, steps: [{ side: 'both', pos: 50, h: 2 }, { side: 'both', pos: 75, h: 2 }], kinks: [] },
     { id: 'plate', name: 'Platte', label: 'Ebene Platte', t0: 3, steps: [], kinks: [] },
     { id: 'knick', name: 'Knickplatte', label: 'Knickplatte — Knick bei 30 %', t0: 3, steps: [], kinks: [{ pos: 30, ang: 6 }] }
   ];
 
   function defaults(id) {
     const p = PRESETS.find(x => x.id === id) || PRESETS[1];
-    return { preset: p.id, base: p.name, t0: p.t0, nose: 'round', noseLen: 4,
+    return { preset: p.id, base: p.name, t0: p.t0, nose: 'round', noseLen: 4, noseLenB: 4, noseTip: 'mid', noseTipPct: 50,
       steps: p.steps.map(s => ({ side: s.side, pos: s.pos, h: s.h })),
       kinks: p.kinks.map(k => ({ pos: k.pos, ang: k.ang })),
       teLen: 0, teThick: 1 };
@@ -37,21 +38,42 @@
   // Eingaben in gültige Bereiche bringen (Sehnenanteile statt %).
   function clean(P) {
     const t0 = clamp(+P.t0, 0.3, 30) / 100;
-    const steps = (P.steps || []).map(s => ({ top: s.side !== 'bot', pos: clamp(+s.pos, 5, 95) / 100, h: clamp(+s.h, 0, 30) / 100 }))
-      .filter(s => s.h > 1e-5).sort((a, b) => a.pos - b.pos);
+    // side 'both' = symmetrische Stufe: gleiche Lage oben und unten (dup = die
+    // untere Hälfte, nur für den Namen ausgeblendet).
+    const steps = [];
+    (P.steps || []).forEach(s => {
+      const pos = clamp(+s.pos, 5, 95) / 100, h = clamp(+s.h, 0, 30) / 100;
+      if (h <= 1e-5) return;
+      if (s.side === 'both') { steps.push({ top: true, pos, h, sym: true }); steps.push({ top: false, pos, h, sym: true, dup: true }); }
+      else steps.push({ top: s.side !== 'bot', pos, h });
+    });
+    steps.sort((a, b) => a.pos - b.pos);
     const hu = steps.filter(s => s.top).reduce((a, s) => a + s.h, 0);
     const hl = steps.filter(s => !s.top).reduce((a, s) => a + s.h, 0);
     const half = (t0 + hu + hl) / 2;                    // halbe Gesamtdicke an der Nase
     const first = steps.length ? steps[0].pos : 1;
-    let L = P.nose === 'round' ? half : clamp(+P.noseLen, 0.2, 40) / 100;
-    L = Math.max(0.002, Math.min(L, first - 0.01, 0.45));
+    // Höhe der Nasenspitze über der Plattenmitte: 'mid' = Mitte der Gesamtdicke
+    // (Rundung oben und unten gleich, Standard), 'plate' = Mitte der Grundplatte,
+    // 'free' = noseTipPct von der Unterseite. Die Ausrichtung hängt NICHT davon ab:
+    // der Gestalter normiert ohne Drehung (Airfoil.normalize keepAlign), die
+    // Grundplatte liegt immer bei 0°.
+    const yT = t0 / 2 + hu, yB = -(t0 / 2 + hl);
+    const tip = P.noseTip === 'plate' ? 0 : P.noseTip === 'free' ? yB + (yT - yB) * clamp(+P.noseTipPct, 0, 100) / 100 : (yT + yB) / 2;
+    const hT = Math.max(0, yT - tip), hB = Math.max(0, tip - yB);   // Höhe der Rundung oben/unten
+    const lim = v => Math.max(0.002, Math.min(v, first - 0.01, 0.45));
+    // Länge der Nase je Seite: rund = Viertelkreis (Länge = Höhe der Seite),
+    // elliptisch/Keil = eingestellte Länge, unten eigens (noseLenB, sonst wie oben).
+    const lenB = P.noseLenB != null && P.noseLenB !== '' ? P.noseLenB : P.noseLen;
+    const LT = lim(P.nose === 'round' ? Math.max(hT, 0.002) : clamp(+P.noseLen, 0.2, 40) / 100);
+    const LB = lim(P.nose === 'round' ? Math.max(hB, 0.002) : clamp(+lenB, 0.2, 40) / 100);
+    const L = Math.max(LT, LB);
     const last = steps.length ? steps[steps.length - 1].pos : L;
     let teLen = clamp(+P.teLen, 0, 60) / 100;
     teLen = Math.max(0, Math.min(teLen, 1 - Math.max(last, L) - 0.01));
     const teThick = Math.min(clamp(+P.teThick, 0, 30) / 100, t0);
     const kinks = (P.kinks || []).map(k => ({ pos: clamp(+k.pos, 1, 99) / 100, ang: clamp(+k.ang, -45, 45) }))
       .filter(k => Math.abs(k.ang) > 1e-6 && k.pos > L + 0.005).sort((a, b) => a.pos - b.pos);
-    return { t0, steps, hu, hl, half, L, teLen, teThick, kinks, nose: P.nose || 'round' };
+    return { t0, steps, hu, hl, half, L, LT, LB, tip, teLen, teThick, kinks, nose: P.nose || 'round' };
   }
 
   // Mittellinie: Polygonzug, an jedem Knick dreht der hintere Teil um ang nach unten.
@@ -75,16 +97,18 @@
     // Nasenspitze auf der Mitte der Grundplatte: so liegt die Sehne (Nase →
     // Endleistenmitte) in der Platte und das Profil wird beim Normieren nicht
     // verdreht — auch bei Stufen auf nur einer Seite.
-    const V = [];
-    if (C.nose === 'wedge') V.push({ x: 0, o: 0, sharp: true });
+    // Nasenspitze in Höhe C.tip (o zählt je Seite nach außen), Rundung bis zur
+    // Außenhaut dieser Seite über die Länge L dieser Seite.
+    const V = [], o0 = top ? C.tip : -C.tip, L = top ? C.LT : C.LB, hs = total - o0;
+    if (C.nose === 'wedge') V.push({ x: 0, o: o0, sharp: true });
     else {
       const n = 16;
       for (let i = 0; i < n; i++) {
         const u = (1 - Math.cos(Math.PI / 2 * i / n));      // an der Nasenspitze verdichtet
-        V.push({ x: u * C.L, o: total * Math.sqrt(Math.max(0, 1 - (1 - u) * (1 - u))), sharp: false });
+        V.push({ x: u * L, o: o0 + hs * Math.sqrt(Math.max(0, 1 - (1 - u) * (1 - u))), sharp: false });
       }
     }
-    V.push({ x: C.L, o: total, sharp: C.nose === 'wedge' });
+    V.push({ x: L, o: total, sharp: C.nose === 'wedge' });
     const xa = 1 - C.teLen;
     const ev = st.map(s => ({ x: s.pos, step: true }));
     C.kinks.forEach(k => ev.push({ x: k.pos }));
@@ -137,7 +161,7 @@
     const f = v => String(+(v * 100).toFixed(1));
     let n = (P && P.base) || 'KFm';
     n += ' ' + f(C.t0 + C.hu + C.hl) + '%';
-    if (C.steps.length) n += ' (' + C.steps.map(s => (s.top ? 'o' : 'u') + f(s.pos)).join(' ') + ')';
+    if (C.steps.length) n += ' (' + C.steps.filter(s => !s.dup).map(s => (s.sym ? 's' : s.top ? 'o' : 'u') + f(s.pos)).join(' ') + ')';
     if (C.kinks.length) n += ' K' + C.kinks.map(k => f(k.pos) + '/' + (+k.ang.toFixed(1)) + '°').join(' ');
     return n;
   }
@@ -145,8 +169,8 @@
   // Abgeleitete Maße für die Anzeige (Sehnenanteile).
   function info(P) {
     const C = clean(P || {});
-    return { total: C.t0 + C.hu + C.hl, top: C.hu, bot: C.hl, base: C.t0, noseLen: C.L,
-      te: C.teLen > 0 ? C.teThick : C.t0, steps: C.steps.length, kinks: C.kinks.length };
+    return { total: C.t0 + C.hu + C.hl, top: C.hu, bot: C.hl, base: C.t0, noseLen: C.L, noseTop: C.LT, noseBot: C.LB, tip: C.tip,
+      te: C.teLen > 0 ? C.teThick : C.t0, steps: C.steps.filter(s => !s.dup).length, kinks: C.kinks.length };
   }
 
   window.KFm = { PRESETS, defaults, build, autoName, info };

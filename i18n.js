@@ -2,6 +2,20 @@
  * Quellsprache im Code ist Deutsch. t(deutsch) liefert bei lang==='en' die
  * englische Entsprechung aus DICT, sonst den unveränderten String.
  * Sprache wählbar in den Einstellungen (persistiert in localStorage). */
+
+// Windows 7/8 (NT 6.x): Felder mit inputmode="decimal" nehmen dort keine
+// Zeichen von der Tastatur an (Pfeiltasten gehen, Ziffern nicht) — beobachtet
+// in der Electron-22-Win7-Ausgabe. inputmode steuert nur Bildschirmtastaturen,
+// deshalb auf diesen Systemen einfach wirkungslos machen. Steht hier, weil
+// i18n.js als erstes Skript geladen wird.
+(function () {
+  try {
+    if (/Windows NT 6\./.test(navigator.userAgent))
+      Object.defineProperty(HTMLElement.prototype, 'inputMode',
+        { get: function () { return ''; }, set: function () {}, configurable: true });
+  } catch (e) {}
+})();
+
 (function () {
   'use strict';
 
@@ -320,6 +334,45 @@
     "Stufenhöhe = Dicke der Lage (% der Sehne)": "Step height = layer thickness (% of chord)",
     "Stufe entfernen": "Remove step",
     "+ Stufe": "+ Step",
+    "oben + unten": "top + bottom",
+    "Alle symmetrisch": "All symmetric",
+    "Nasenspitze": "Nose tip",
+    "mittig — Rundung symmetrisch": "centred — symmetric rounding",
+    "auf Mitte der Grundplatte": "on centre of the base sheet",
+    "frei (Höhe wählen)": "free (choose height)",
+    "Höhe der Nasenspitze. Mittig: Rundung oben und unten gleich groß, auch bei Stufen nur auf einer Seite. Auf Mitte der Grundplatte: Rundung je Seite so hoch wie die Lagen dort. Frei: Höhe in % der Nasendicke. Die Ausrichtung hängt nicht davon ab — die Grundplatte liegt immer bei 0° Anstellwinkel.": "Height of the nose tip. Centred: rounding equal on top and bottom, even with steps on one side only. On centre of the base sheet: rounding per side as high as the layers there. Free: height in % of the nose thickness. Alignment does not depend on it — the base sheet always lies at 0° angle of attack.",
+    "Höhe der Nasenspitze": "Nose tip height",
+    "0 = an der Unterseite, 50 = Mitte, 100 = an der Oberseite (bezogen auf die Dicke an der Nase)": "0 = at the bottom, 50 = centre, 100 = at the top (relative to the thickness at the nose)",
+    "Nasenlänge oben": "Nose length top",
+    "Nasenlänge unten": "Nose length bottom",
+    "Polare (live)": "Polar (live)",
+    "Gleitzahl cl/cd über α": "Glide ratio cl/cd vs α",
+    "Gleitzahl cl/cd über cl": "Glide ratio cl/cd vs cl",
+    "Steigzahl cl¹·⁵/cd über cl": "Climb factor cl¹·⁵/cd vs cl",
+    "cd über α": "cd vs α",
+    "cm über α": "cm vs α",
+    "Umschlag x/c über α (oben/unten)": "Transition x/c vs α (top/bottom)",
+    "Diagramme": "Charts",
+    "α von": "α from",
+    "Punkt bei α": "point at α",
+    "bei α ": "at α ",
+    "unsicher": "uncertain",
+    "Werte für genau diesen Anstellwinkel anzeigen (leer = aus)": "Show values for exactly this angle of attack (empty = off)",
+    "Anstellwinkel bezogen auf die waagrechte Grundplatte. Hinter dem Abriss bricht die Rechnung früher ab (Netz zu unsicher); steigt cl am Ende noch, wird bis zu 8° weiter gerechnet.": "Angle of attack relative to the horizontal base sheet. Beyond stall the computation stops earlier (network too uncertain); if cl is still rising at the end, it continues up to 8° further.",
+    "📌 Zwischenstand merken": "📌 Keep snapshot",
+    "Aktuelle Polare als Vergleichskurve behalten (mit den Maßen des Entwurfs, wieder herstellbar)": "Keep the current polar as a comparison curve (with the draft's dimensions, restorable)",
+    "Maße dieses Zwischenstands in den Entwurf übernehmen": "Load this snapshot's dimensions into the draft",
+    "Zwischenstand entfernen": "Remove snapshot",
+    "vorher": "previous",
+    "Rad = Zoom · Ziehen = Achse strecken/stauchen (waagerecht X, senkrecht Y) · Shift- oder Rechts-Ziehen = verschieben · Doppelklick = alles · Legende = Kurve ein/aus.": "Wheel = zoom · drag = stretch/compress axis (horizontal X, vertical Y) · Shift or right drag = pan · double-click = all · legend = curve on/off.",
+    "Polare cl über cd": "Polar cl vs cd",
+    "cl über α": "cl vs α",
+    "beste Gleitzahl ": "best L/D ",
+    "gestrichelt: vorheriger Stand": "dashed: previous state",
+    "Keine Polare — Netz unsicher für diese Form.": "No polar — network uncertain for this shape.",
+    "Rechnet bei jeder Änderung mit (NeuralFoil, Ncrit 9). Das Netz sieht die Stufen über eine glatte Ersatzkontur — gut zum Vergleichen der Varianten, die Absolutwerte bei scharfen Stufen nur als Schätzung nehmen.": "Recomputed on every change (NeuralFoil, Ncrit 9). The network sees the steps through a smooth substitute contour — good for comparing variants; take absolute values for sharp steps only as an estimate.",
+    "Jede Stufe oben und unten gleich (oben + unten an derselben Stelle)": "Every step identical on top and bottom (top + bottom at the same position)",
+    "Symmetrisch — je zwei Stufen oben und unten bei 50 % und 75 %": "Symmetric — two steps each on top and bottom at 50 % and 75 %",
     "Knicke (Knickplatte)": "Bends (bent plate)",
     "Lage des Knicks von der Nase (% der Sehne)": "Bend position from the nose (% of chord)",
     "Knickwinkel: positiv = hinterer Teil nach unten (Wölbung), negativ = nach oben (S-Schlag)": "Bend angle: positive = rear part down (camber), negative = up (reflex)",

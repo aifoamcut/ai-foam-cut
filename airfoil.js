@@ -98,6 +98,10 @@
     return normalize(pts);
   }
 
+  // Profile, deren Ausrichtung beim Einlesen erhalten bleibt (Name-Prüfung setzt
+  // die Profildatenbank: Airfoil.keepAlignName = name => bool, z. B. KFm/Platte).
+  function keepAlignFor(name) { const f = global.Airfoil && global.Airfoil.keepAlignName; try { return !!(f && f(String(name || ''))); } catch (e) { return false; } }
+
   // ---- .dat Parser (Selig & Lednicer) --------------------------------
   function parseDat(text) {
     if (isBezText(text)) return parseBez(text);
@@ -129,7 +133,7 @@
     }
     pts = pts.map(p => ({ x: p.x, y: p.y }));
     pts.name = name;
-    return normalize(pts);
+    return normalize(pts, { keepAlign: keepAlignFor(name) });
   }
 
   /* ---- Kanonisieren --------------------------------------------------
@@ -187,8 +191,20 @@
   }
 
   // ---- Normalisieren: LE bei x=0, TE bei x=1, Sehne = 1 --------------
-  function normalize(raw) {
+  // opts.keepAlign (oder raw.keepAlign): NICHT drehen, nur verschieben/skalieren
+  // (vorderster Punkt → x=0/y=0, Tiefe → 1). Für Stufen-/Plattenprofile aus dem
+  // KFm-Gestalter: dort bestimmt die Grundplatte den Anstellwinkel 0°, nicht die
+  // Linie Nasenspitze → Endleistenmitte (symmetrische Nase liegt außermittig).
+  function normalize(raw, opts) {
     const pts = canonicalize(raw);
+    if ((opts && opts.keepAlign) || raw.keepAlign) {
+      let iMin = 0, x1 = -Infinity;
+      pts.forEach((p, i) => { if (p.x < pts[iMin].x) iMin = i; if (p.x > x1) x1 = p.x; });
+      const le = pts[iMin], c = (x1 - le.x) || 1;
+      const out = pts.map(p => ({ x: (p.x - le.x) / c, y: (p.y - le.y) / c }));
+      out.name = pts.name || raw.name || 'Profil'; out.keepAlign = true;
+      return out;
+    }
     // TE = Mittel aus erstem und letztem Punkt (nach Kanonisierung sicher)
     const te = { x: (pts[0].x + pts[pts.length - 1].x) / 2,
                  y: (pts[0].y + pts[pts.length - 1].y) / 2 };

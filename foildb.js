@@ -50,7 +50,7 @@
 
   const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const clonePts = pts => pts.map(q => [+(+q[0]).toFixed(6), +(+q[1]).toFixed(6)]);
-  const toProf = (rec) => { const p = rec.pts.map(q => ({ x: q[0], y: q[1] })); p.name = rec.name; if (rec.keepTE) p.keepTE = true; return p; };
+  const toProf = (rec) => { const p = rec.pts.map(q => ({ x: q[0], y: q[1] })); p.name = rec.name; if (rec.keepTE) { p.keepTE = true; p.keepAlign = true; } return p; };
 
   // Kennung einer Kontur: unabhängig von Punktzahl/-verteilung (Resampling auf
   // feste Punkte, 4 Nachkommastellen) — gleiche Profile aus verschiedenen
@@ -155,7 +155,8 @@
     opts = opts || {};
     if (!prof || prof.length < 5 || !window.Airfoil) return null;
     let p = prof;
-    try { p = Airfoil.normalize(prof.map(q => ({ x: q.x, y: q.y }))); } catch (e) { return null; }
+    // Stufen-/Plattenprofile: Ausrichtung behalten (Grundplatte = 0°, siehe Airfoil.normalize)
+    try { p = Airfoil.normalize(prof.map(q => ({ x: q.x, y: q.y })), { keepAlign: !!(opts.keepTE || prof.keepAlign) }); } catch (e) { return null; }
     const key = keyOf(p);
     const generic = n => !n || /^Profil(\s*\(.*\))?$/i.test(String(n).trim());
     let name = String(opts.name || prof.name || '').trim();
@@ -216,6 +217,8 @@
   // ---- Automatische Aufnahme: Airfoil.parseDat/parseBez umhüllen ------------
   (function hookAirfoil() {
     if (!window.Airfoil) return;
+    // .dat aus dem KFm-Gestalter beim Einlesen nicht drehen (Platte bleibt bei 0°)
+    Airfoil.keepAlignName = n => KFM_NAME.test(n);
     ['parseDat', 'parseBez'].forEach(fn => {
       const orig = Airfoil[fn]; if (typeof orig !== 'function') return;
       Airfoil[fn] = function (text) {
@@ -401,7 +404,8 @@
     const box = $('fdbTable'); if (!box) return;
     const ids = [...U.cmp]; if (U.sel && ids.indexOf(U.sel) < 0) ids.push(U.sel);
     const recs = ids.map(get).filter(Boolean);
-    if (!recs.length) { box.innerHTML = ''; return; }
+    box.style.display = ''; box.style.flexDirection = ''; box.style.gap = ''; box.style.paddingBottom = '';
+    if (!recs.length || U.kfm) { box.innerHTML = ''; return; }
     const rows = [
       [T('Max. Dicke'), r => pct(metrics(r).thick)], [T('Dickenrücklage'), r => pct(metrics(r).thickX, 0)],
       [T('Max. Wölbung'), r => pct(metrics(r).cam, 2)], [T('Wölbungsrücklage'), r => pct(metrics(r).camX, 0)],
@@ -418,7 +422,7 @@
   // ---- Detail / Bearbeitung ---------------------------------------------------
   function drawDetail() {
     const box = $('fdbDetail'); if (!box) return;
-    if (U.kfm) { drawKfm(box); drawTable(); return; }
+    if (U.kfm) { drawKfm(box); drawTable(); kfmPolarPanel(); return; }
     const r = get(U.sel);
     if (!r) { box.innerHTML = '<div class="fdb-hint">' + T('Kein Profil gewählt.') + '</div>'; drawTable(); return; }
     const m = metrics(r);
@@ -522,12 +526,277 @@
   function kfmProfile() {
     const K = U.kfm; if (!K) return null;
     try {
-      const p = Airfoil.normalize(KFm.build(K.P));
+      const p = Airfoil.normalize(KFm.build(K.P), { keepAlign: true });   // Grundplatte = 0°, Nase zählt nicht
       p.name = K.name.trim() || KFm.autoName(K.P);
       return p;
     } catch (e) { return null; }
   }
-  function kfmUpdate() { if (!U.kfm) return; U.kfm.preview = kfmProfile(); drawCanvas(); }
+  function kfmUpdate() { if (!U.kfm) return; U.kfm.preview = kfmProfile(); drawCanvas(); kfmPolarSoon(); }
+
+  // Live-Polare zum Entwurf (NeuralFoil aus dem Reiter „Aerodynamik"): läuft nach
+  // jeder Änderung kurz verzögert mit; die vorige Kurve bleibt gestrichelt zum
+  // Vergleich stehen. Ohne NeuralFoil im Build bleibt der Abschnitt weg.
+  const kfmNF = () => !!(window.NeuralFoil && NeuralFoil.ready && NeuralFoil.ready());
+  let kfmPolT = 0;
+  function kfmPolarSoon() {
+    const K = U.kfm; if (!K || !kfmNF()) return;
+    clearTimeout(kfmPolT);
+    kfmPolT = setTimeout(() => {
+      if (U.kfm !== K || !K.preview) return;
+      // α bezieht sich auf die waagrechte Grundplatte (NeuralFoil rechnet intern zur Sehne gedreht)
+      // α-Bereich und optionaler Betriebspunkt aus dem Polarfeld (K.a0/a1/da/aOp)
+      let r = null; K.opPt = null;
+      try {
+        const m = NeuralFoil.build(K.preview), Re = K.re || 1e5;
+        if (m) {
+          const a0 = K.a0 != null ? K.a0 : -6, a1 = K.a1 != null ? K.a1 : 16;
+          r = m.polar({ Re, a0: Math.min(a0, a1), a1: Math.max(a0, a1), da: K.da || 0.5 });
+          if (isFinite(K.aOp)) K.opPt = m.run(K.aOp, Re);
+        }
+      } catch (e) { r = null; }
+      if (K.pol && K.pol.pts && K.pol.pts.length) K.polPrev = K.pol;
+      K.pol = r && r.pts && r.pts.length ? r : null;
+      kfmPolarDraw();
+    }, 150);
+  }
+  // Polaren-Feld rechts neben der Eingabemaske (statt der Kennwert-Tabelle).
+  // Polaren-Feld rechts neben der Eingabemaske (statt der Kennwert-Tabelle).
+  // Diagramme wie im Reiter „Aerodynamik" (Aero.drawChart): je Feld wählbar,
+  // Rad = Zoom um den Zeiger, Ziehen = Achse strecken/stauchen, Shift-/Rechts-
+  // Ziehen = verschieben, Doppelklick = alles, Legende = Kurve ein/aus.
+  const KFM_CH = [
+    { id: 'pol', title: 'Polare cl über cd', xlab: 'cd', ylab: 'cl', fx: q => q.cd, fy: q => q.cl },
+    { id: 'cla', title: 'cl über α', xlab: 'α (°)', ylab: 'cl', fx: q => q.alpha, fy: q => q.cl },
+    { id: 'gz', title: 'Gleitzahl cl/cd über α', xlab: 'α (°)', ylab: 'cl/cd', fx: q => q.alpha, fy: q => q.cl / q.cd },
+    { id: 'gzcl', title: 'Gleitzahl cl/cd über cl', xlab: 'cl', ylab: 'cl/cd', fx: q => q.cl, fy: q => q.cl / q.cd },
+    { id: 'sz', title: 'Steigzahl cl¹·⁵/cd über cl', xlab: 'cl', ylab: 'cl¹·⁵/cd', fx: q => q.cl, fy: q => q.cl > 0 ? Math.pow(q.cl, 1.5) / q.cd : NaN },
+    { id: 'cd', title: 'cd über α', xlab: 'α (°)', ylab: 'cd', fx: q => q.alpha, fy: q => q.cd },
+    { id: 'cm', title: 'cm über α', xlab: 'α (°)', ylab: 'cm', fx: q => q.alpha, fy: q => q.cm },
+    { id: 'xtr', title: 'Umschlag x/c über α (oben/unten)', xlab: 'α (°)', ylab: 'x/c', fx: q => q.alpha, fy: q => q.xtrU, fy2: q => q.xtrL }
+  ];
+  const KFM_SNAP_COL = ['#4fc3f7', '#81c784', '#ba68c8', '#e57373', '#fff176', '#4db6ac', '#f06292', '#a1887f'];
+  const kfmCharts = () => !!(window.Aero && Aero.drawChart && Aero.chartRange);
+  let kfmPolRO = false;
+  function kfmPolarPanel() {
+    const box = $('fdbTable'), K = U.kfm; if (!box || !K) return;
+    box.textContent = ''; K.polSlots = null;
+    if (!kfmNF() || !kfmCharts()) return;
+    if (!Array.isArray(K.polCh)) K.polCh = ['pol', 'cla', 'gz', 'cm'];
+    if (!K.polN) K.polN = 2;
+    if (!K.polHide) K.polHide = new Set();
+    const mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const selStyle = 'padding:2px 6px;border-radius:6px;border:1px solid rgba(128,128,128,.45);background:var(--bg2,#0c0f13);color:var(--txt,#e6e6e6);font-size:12px';
+    box.style.display = 'flex'; box.style.flexDirection = 'column'; box.style.gap = '6px'; box.style.paddingBottom = '10px';
+    const head = mk('div', 'fdb-btns'); head.style.alignItems = 'center';
+    head.appendChild(mk('b', null, T('Polare (live)')));
+    head.appendChild(mk('span', 'fdb-hint', T('Re-Zahl')));
+    const re = document.createElement('input'); re.type = 'number'; re.step = 10000; re.min = 20000; re.max = 3e6; re.value = K.re || 1e5; re.style.width = '96px';
+    re.onchange = () => { const v = Math.max(20000, Math.min(3e6, +re.value || 1e5)); re.value = v; K.re = v; K.polPrev = null; kfmPolarSoon(); };
+    head.appendChild(re);
+    // α-Bereich der Polare (von/bis/Schritt) und ein einzelner Betriebspunkt
+    const aNum = (val, step, w, set, ph) => { const i = document.createElement('input'); i.type = 'number'; i.step = step; i.style.width = w;
+      if (val != null && isFinite(val)) i.value = val; if (ph) i.placeholder = ph;
+      i.onchange = () => { const v = i.value === '' ? null : +i.value; if (v != null && !isFinite(v)) return; set(v); kfmPolarSoon(); }; return i; };
+    const aRow = mk('span'); aRow.style.cssText = 'display:inline-flex;align-items:center;gap:4px';
+    aRow.title = T('Anstellwinkel bezogen auf die waagrechte Grundplatte. Hinter dem Abriss bricht die Rechnung früher ab (Netz zu unsicher); steigt cl am Ende noch, wird bis zu 8° weiter gerechnet.');
+    aRow.appendChild(mk('span', 'fdb-hint', T('α von')));
+    aRow.appendChild(aNum(K.a0 != null ? K.a0 : -6, 0.5, '54px', v => { K.a0 = v == null ? -6 : Math.max(-20, Math.min(30, v)); K.polPrev = null; }));
+    aRow.appendChild(mk('span', 'fdb-hint', T('bis')));
+    aRow.appendChild(aNum(K.a1 != null ? K.a1 : 16, 0.5, '54px', v => { K.a1 = v == null ? 16 : Math.max(-20, Math.min(30, v)); K.polPrev = null; }));
+    aRow.appendChild(mk('span', 'fdb-hint', T('Schritt')));
+    aRow.appendChild(aNum(K.da || 0.5, 0.1, '48px', v => { K.da = v == null ? 0.5 : Math.max(0.1, Math.min(5, v)); K.polPrev = null; }));
+    aRow.appendChild(mk('span', 'fdb-hint', '° · ' + T('Punkt bei α')));
+    const op = aNum(K.aOp, 0.5, '54px', v => { K.aOp = v == null ? NaN : Math.max(-20, Math.min(30, v)); }, '—');
+    op.title = T('Werte für genau diesen Anstellwinkel anzeigen (leer = aus)');
+    aRow.appendChild(op); aRow.appendChild(mk('span', 'fdb-hint', '°'));
+    head.appendChild(aRow);
+    head.appendChild(mk('span', 'fdb-hint', T('Diagramme')));
+    const nSel = document.createElement('select'); nSel.style.cssText = selStyle;
+    [1, 2, 3, 4].forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; nSel.appendChild(o); });
+    nSel.value = K.polN; nSel.onchange = () => { K.polN = +nSel.value; kfmPolarPanel(); };
+    head.appendChild(nSel);
+    // Zwischenstände: aktuelle Polare samt Entwurfsmaßen von Hand merken; sie
+    // bleiben als eigene Kurven zum Vergleich stehen (bis zu 8).
+    if (!K.polSnaps) K.polSnaps = [];
+    const bSnap = mk('button', null, T('📌 Zwischenstand merken'));
+    bSnap.title = T('Aktuelle Polare als Vergleichskurve behalten (mit den Maßen des Entwurfs, wieder herstellbar)');
+    bSnap.disabled = !K.pol || K.polSnaps.length >= 8;
+    bSnap.onclick = () => {
+      if (!K.pol) return;
+      const used = new Set(K.polSnaps.map(s => s.color));
+      const color = KFM_SNAP_COL.find(c => !used.has(c)) || KFM_SNAP_COL[0];
+      const nm = (K.name.trim() || KFm.autoName(K.P)) + ' · Re ' + Math.round(K.pol.Re / 1000) + 'k';
+      K.polSnaps.push({ name: nm, pol: K.pol, P: JSON.parse(JSON.stringify(K.P)), color, on: true });
+      kfmPolarPanel();
+    };
+    head.appendChild(bSnap); K.polSnapBtn = bSnap;
+    box.appendChild(head);
+    const grid = mk('div'); grid.style.cssText = 'flex:1;min-height:0;display:grid;gap:8px;grid-auto-rows:minmax(110px,1fr)';
+    box.appendChild(grid); K.polGrid = grid;
+    K.polSlots = [];
+    for (let i = 0; i < K.polN; i++) {
+      const cell = mk('div'); cell.style.cssText = 'display:flex;flex-direction:column;min-height:0;min-width:0';
+      const cs = document.createElement('select'); cs.style.cssText = selStyle + ';align-self:flex-start;margin-bottom:2px';
+      KFM_CH.forEach(d => { const o = document.createElement('option'); o.value = d.id; o.textContent = T(d.title); cs.appendChild(o); });
+      cs.value = K.polCh[i] || KFM_CH[i % KFM_CH.length].id; K.polCh[i] = cs.value;
+      const host = mk('div'); host.style.cssText = 'flex:1;position:relative;min-height:90px;border:1px solid rgba(128,128,128,.3);border-radius:6px';
+      const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;cursor:crosshair';
+      host.appendChild(c); cell.appendChild(cs); cell.appendChild(host); grid.appendChild(cell);
+      const slot = { c, rng: null, map: null, cur: null, auto: null };
+      cs.onchange = () => { K.polCh[i] = cs.value; slot.rng = null; kfmSlotDraw(slot, i); };
+      kfmSlotEvents(slot, i);
+      K.polSlots.push(slot);
+    }
+    if (K.polSnaps.length) {
+      const list = mk('div'); list.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px';
+      K.polSnaps.forEach((sn, j) => {
+        const it = mk('label'); it.style.cssText = 'display:flex;align-items:center;gap:4px;white-space:nowrap';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = sn.on !== false;
+        cb.onchange = () => { sn.on = cb.checked; kfmPolarDraw(); };
+        const sw = mk('span'); sw.style.cssText = 'display:inline-block;width:18px;border-top:2.5px solid ' + sn.color;
+        const tx = mk('span', null, sn.name);
+        const rs = mk('button', null, '↺'); rs.title = T('Maße dieses Zwischenstands in den Entwurf übernehmen');
+        rs.style.cssText = 'padding:0 6px;font-size:11px';
+        rs.onclick = e => { e.preventDefault(); K.P = JSON.parse(JSON.stringify(sn.P)); drawDetail(); kfmUpdate(); };
+        const del = mk('button', null, '✕'); del.title = T('Zwischenstand entfernen');
+        del.style.cssText = 'padding:0 6px;font-size:11px';
+        del.onclick = e => { e.preventDefault(); K.polSnaps.splice(j, 1); kfmPolarPanel(); };
+        it.appendChild(cb); it.appendChild(sw); it.appendChild(tx); it.appendChild(rs); it.appendChild(del);
+        list.appendChild(it);
+      });
+      box.insertBefore(list, grid);
+    }
+    K.polInfo = mk('div', 'fdb-hint'); box.appendChild(K.polInfo);
+    // Bedienhinweis und NeuralFoil-Hinweis als Tooltip (ⓘ), damit die Diagramme Platz haben.
+    K.polInfo.title = T('Rechnet bei jeder Änderung mit (NeuralFoil, Ncrit 9). Das Netz sieht die Stufen über eine glatte Ersatzkontur — gut zum Vergleichen der Varianten, die Absolutwerte bei scharfen Stufen nur als Schätzung nehmen.');
+    const tip = mk('span', 'fdb-hint', 'ⓘ'); tip.style.cursor = 'help';
+    tip.title = T('Rad = Zoom · Ziehen = Achse strecken/stauchen (waagerecht X, senkrecht Y) · Shift- oder Rechts-Ziehen = verschieben · Doppelklick = alles · Legende = Kurve ein/aus.') + ' — ' + K.polInfo.title;
+    head.appendChild(tip);
+    K.polSlots.forEach(sl => { sl.c.title = T('Rad = Zoom · Ziehen = Achse strecken/stauchen (waagerecht X, senkrecht Y) · Shift- oder Rechts-Ziehen = verschieben · Doppelklick = alles · Legende = Kurve ein/aus.'); });
+    if (!kfmPolRO) { kfmPolRO = true; window.addEventListener('resize', () => kfmPolarDraw()); if (window.ResizeObserver) new ResizeObserver(() => kfmPolarDraw()).observe(box); }
+    setTimeout(kfmPolarDraw, 0);
+  }
+  // Kurven eines Diagramms: aktueller Entwurf + gestrichelt der vorige Stand.
+  function kfmSeries(D) {
+    const K = U.kfm;
+    const acc = (getComputedStyle(document.body).getPropertyValue('--accent2') || '').trim() || '#ff8c42', out = [];
+    const add = (r, name, color, dash) => {
+      if (!r || !r.pts) return;
+      out.push({ name: D.fy2 ? name + ' ' + T('oben') : name, color, dash, pts: r.pts.map(q => [D.fx(q), D.fy(q)]) });
+      if (D.fy2) out.push({ name: name + ' ' + T('unten'), color, dash: 'dot', pts: r.pts.map(q => [D.fx(q), D.fy2(q)]) });
+    };
+    add(K.pol, T('Entwurf'), acc, null);
+    add(K.polPrev, T('vorher'), '#8a8f98', true);
+    (K.polSnaps || []).forEach((sn, j) => { if (sn.on !== false) add(sn.pol, (j + 1) + ': ' + sn.name, sn.color, null); });
+    out.forEach(s => { if (K.polHide.has(D.id + '|' + s.name)) s.hidden = true; });
+    return out;
+  }
+  function kfmSlotDraw(slot, i) {
+    const K = U.kfm; if (!K || !slot.c.isConnected) return;
+    const D = KFM_CH.find(d => d.id === K.polCh[i]) || KFM_CH[0];
+    const g = slot.c.getContext('2d');
+    const ser = K.pol ? kfmSeries(D) : [];
+    const auto = ser.length && window.Aero ? Aero.chartRange(ser) : null;
+    if (!auto) {
+      const dpr = window.devicePixelRatio || 1, W = slot.c.clientWidth, H = slot.c.clientHeight;
+      slot.c.width = W * dpr; slot.c.height = H * dpr; g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(128,128,128,.9)'; g.font = '11px system-ui';
+      g.fillText(K.preview ? T('Keine Polare — Netz unsicher für diese Form.') : '…', 10, 20); slot.map = null; slot.auto = null; return;
+    }
+    if (D.id === 'pol') auto.x0 = Math.min(auto.x0, 0);
+    slot.auto = auto;
+    const r = slot.rng || auto;
+    slot.map = window.Aero && Aero.drawChart(slot.c, '', T(D.xlab), T(D.ylab), ser, { grid: true, xr: [r.x0, r.x1], yr: [r.y0, r.y1] });
+    const m = slot.map, cur = slot.cur;
+    // Betriebspunkt (α aus dem Feld „Punkt bei α“) als Ring markieren
+    if (m && K.opPt && isFinite(K.opPt.cl)) {
+      const ys = [D.fy(K.opPt)].concat(D.fy2 ? [D.fy2(K.opPt)] : []), vx = D.fx(K.opPt);
+      const px = m.mL + (vx - m.x0) / (m.x1 - m.x0) * (m.W - m.mL - m.mR);
+      ys.forEach(vy => {
+        const py = m.H - m.mB - (vy - m.y0) / (m.y1 - m.y0) * (m.H - m.mT - m.mB);
+        if (!isFinite(px) || !isFinite(py) || px < m.mL || px > m.W - m.mR || py < m.mT || py > m.H - m.mB) return;
+        g.strokeStyle = (getComputedStyle(document.body).getPropertyValue('--txt') || '').trim() || '#fff'; g.lineWidth = 2;
+        g.beginPath(); g.arc(px, py, 5, 0, 2 * Math.PI); g.stroke(); g.lineWidth = 1;
+      });
+    }
+    if (!m || !cur || cur.mx < m.mL || cur.mx > m.W - m.mR || cur.my < m.mT || cur.my > m.H - m.mB) return;
+    const fx = m.x0 + (cur.mx - m.mL) / (m.W - m.mL - m.mR) * (m.x1 - m.x0), fy = m.y0 + (m.H - m.mB - cur.my) / (m.H - m.mT - m.mB) * (m.y1 - m.y0);
+    const f = v => { const a = Math.abs(v); return a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(2) : v.toFixed(4); };
+    const txt = (getComputedStyle(document.body).getPropertyValue('--txt') || '').trim() || '#ccc';
+    g.strokeStyle = txt; g.globalAlpha = 0.4; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(cur.mx, m.mT); g.lineTo(cur.mx, m.H - m.mB); g.stroke();
+    g.beginPath(); g.moveTo(m.mL, cur.my); g.lineTo(m.W - m.mR, cur.my); g.stroke();
+    g.setLineDash([]); g.globalAlpha = 1;
+    const lbl = f(fx) + ' / ' + f(fy); g.font = '11px system-ui';
+    const w = g.measureText(lbl).width + 10, bx = Math.min(cur.mx + 12, m.W - m.mR - w), by = Math.max(cur.my - 22, m.mT + 2);
+    g.fillStyle = 'rgba(20,24,30,.9)'; g.fillRect(bx, by, w, 17);
+    g.fillStyle = txt; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(lbl, bx + 5, by + 8.5);
+  }
+  function kfmSlotEvents(slot, i) {
+    const c = slot.c;
+    const rngNow = () => slot.rng || slot.auto;
+    const toData = (mx, my) => { const m = slot.map, r = rngNow();
+      return [r.x0 + (mx - m.mL) / (m.W - m.mL - m.mR) * (r.x1 - r.x0), r.y0 + (m.H - m.mB - my) / (m.H - m.mT - m.mB) * (r.y1 - r.y0)]; };
+    c.addEventListener('wheel', e => {
+      if (!slot.map) return; e.preventDefault();
+      const b = c.getBoundingClientRect(), d = toData(e.clientX - b.left, e.clientY - b.top), r = rngNow();
+      const k = e.deltaY < 0 ? 0.8 : 1.25;
+      slot.rng = { x0: d[0] + (r.x0 - d[0]) * k, x1: d[0] + (r.x1 - d[0]) * k, y0: d[1] + (r.y0 - d[1]) * k, y1: d[1] + (r.y1 - d[1]) * k };
+      kfmSlotDraw(slot, i);
+    }, { passive: false });
+    let drag = null, moved = false;
+    c.oncontextmenu = e => e.preventDefault();
+    c.onmousedown = e => {
+      if (!slot.map) return;
+      const b = c.getBoundingClientRect(), d = toData(e.clientX - b.left, e.clientY - b.top);
+      drag = { x: e.clientX, y: e.clientY, r: Object.assign({}, rngNow()), pan: e.shiftKey || e.button === 2, fx: d[0], fy: d[1] }; moved = false;
+      const up = () => { drag = null; window.removeEventListener('mouseup', up); };
+      window.addEventListener('mouseup', up);
+    };
+    c.onmousemove = e => {
+      const b = c.getBoundingClientRect(); slot.cur = { mx: e.clientX - b.left, my: e.clientY - b.top };
+      if (drag && slot.map) {
+        if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) moved = true;
+        const m = slot.map, R = drag.r;
+        if (drag.pan) {
+          const dx = (e.clientX - drag.x) * (R.x1 - R.x0) / (m.W - m.mL - m.mR), dy = (e.clientY - drag.y) * (R.y1 - R.y0) / (m.H - m.mT - m.mB);
+          slot.rng = { x0: R.x0 - dx, x1: R.x1 - dx, y0: R.y0 + dy, y1: R.y1 + dy };
+        } else {
+          const kx = Math.exp((e.clientX - drag.x) / 180), ky = Math.exp(-(e.clientY - drag.y) / 180);
+          slot.rng = { x0: drag.fx + (R.x0 - drag.fx) / kx, x1: drag.fx + (R.x1 - drag.fx) / kx, y0: drag.fy + (R.y0 - drag.fy) / ky, y1: drag.fy + (R.y1 - drag.fy) / ky };
+        }
+      }
+      kfmSlotDraw(slot, i);
+    };
+    c.onmouseleave = () => { slot.cur = null; kfmSlotDraw(slot, i); };
+    c.ondblclick = () => { slot.rng = null; kfmSlotDraw(slot, i); };
+    c.onclick = e => {                              // Legende: Kurve ein/aus
+      if (moved || !slot.map || !slot.map.legend) return;
+      const b = c.getBoundingClientRect(), mx = e.clientX - b.left, my = e.clientY - b.top;
+      const hit = slot.map.legend.find(L => mx >= L.x0 && mx <= L.x1 && my >= L.y0 && my <= L.y1); if (!hit) return;
+      const K = U.kfm, D = KFM_CH.find(d => d.id === K.polCh[i]) || KFM_CH[0], s = kfmSeries(D)[hit.i]; if (!s) return;
+      const key = D.id + '|' + s.name;
+      if (K.polHide.has(key)) K.polHide.delete(key); else K.polHide.add(key);
+      kfmSlotDraw(slot, i);
+    };
+  }
+  function kfmPolarDraw() {
+    const K = U.kfm; if (!K || !K.polSlots) return;
+    if (K.polGrid) K.polGrid.style.gridTemplateColumns = K.polGrid.clientWidth >= 620 && K.polN > 1 ? '1fr 1fr' : '1fr';
+    K.polSlots.forEach((s, i) => kfmSlotDraw(s, i));
+    if (K.polSnapBtn) K.polSnapBtn.disabled = !K.pol || (K.polSnaps || []).length >= 8;
+    if (K.polInfo) {
+      if (!K.pol) { K.polInfo.textContent = ''; return; }
+      let best = K.pol.pts[0], cdMin = Infinity;
+      K.pol.pts.forEach(q => { if (q.cl / q.cd > best.cl / best.cd) best = q; cdMin = Math.min(cdMin, q.cd); });
+      K.polInfo.textContent = 'Re ' + Math.round(K.pol.Re) + ' · cl max ' + (isFinite(K.pol.clmax) ? K.pol.clmax.toFixed(2) : '–') + ' (α ' + (+K.pol.alphaMax).toFixed(1) + '°) · '
+        + T('beste Gleitzahl ') + (best.cl / best.cd).toFixed(1) + ' (cl ' + best.cl.toFixed(2) + ', α ' + best.alpha.toFixed(1) + '°) · cd min ' + cdMin.toFixed(4)
+        + (K.polPrev ? ' — ' + T('gestrichelt: vorheriger Stand') : '');
+      const o = K.opPt;
+      if (o && isFinite(o.cl)) K.polInfo.textContent += ' ' + T('bei α ') + (+o.alpha).toFixed(1) + '°: cl ' + o.cl.toFixed(3) + ' · cd ' + o.cd.toFixed(4)
+        + ' · cl/cd ' + (o.cl / o.cd).toFixed(1) + ' · cm ' + o.cm.toFixed(3) + (o.conf < 0.6 ? ' (' + T('unsicher') + ')' : '');
+    }
+  }
   function kfmStore() {
     const p = kfmProfile(); if (!p) return null;
     const r = get(add(p, { name: p.name, src: 'kfm', keepTE: true }));
@@ -556,20 +825,29 @@
 
     box.appendChild(mk('div', 'gh', T('Stufenprofil (KFm) / Knickprofil gestalten')));
     box.appendChild(mk('div', 'fdb-hint', T('Aufbau wie beim Bauen aus Platten: Grundplatte über die ganze Sehne, darauf oder darunter Lagen von der Nase bis zur Stufe. Maße in % der Sehne. Der Entwurf erscheint oben im Bild.')));
-    field('Vorlage', sel(KFm.PRESETS.map(p => [p.id, p.label]), P.preset, v => { K.P = Object.assign(KFm.defaults(v), { nose: P.nose, noseLen: P.noseLen, teLen: P.teLen, teThick: P.teThick }); }));
+    field('Vorlage', sel(KFm.PRESETS.map(p => [p.id, p.label]), P.preset, v => { K.P = Object.assign(KFm.defaults(v), { nose: P.nose, noseLen: P.noseLen, noseLenB: P.noseLenB, noseTip: P.noseTip, noseTipPct: P.noseTipPct, teLen: P.teLen, teThick: P.teThick }); }));
     nameInp.type = 'text'; nameInp.value = K.name; nameInp.onchange = () => { K.name = nameInp.value; kfmUpdate(); };
     nameInp.title = T('Leer = Name aus den Maßen');
     field('Name', nameInp);
     field('Dicke der Grundplatte', num(P.t0, 0.1, 0.3, 30, v => { P.t0 = v; }), '%');
     field('Nase', sel([['round', 'rund (Halbkreis)'], ['ellipse', 'elliptisch'], ['wedge', 'spitz (Keil)']], P.nose, v => { P.nose = v; }));
-    if (P.nose !== 'round') field('Nasenlänge', num(P.noseLen, 0.5, 0.2, 40, v => { P.noseLen = v; }), '%');
+    if (P.noseLenB == null) P.noseLenB = P.noseLen;
+    if (P.noseTip == null) P.noseTip = 'mid';
+    if (P.noseTipPct == null) P.noseTipPct = 50;
+    field('Nasenspitze', sel([['mid', 'mittig — Rundung symmetrisch'], ['plate', 'auf Mitte der Grundplatte'], ['free', 'frei (Höhe wählen)']], P.noseTip, v => { P.noseTip = v; }))
+      .title = T('Höhe der Nasenspitze. Mittig: Rundung oben und unten gleich groß, auch bei Stufen nur auf einer Seite. Auf Mitte der Grundplatte: Rundung je Seite so hoch wie die Lagen dort. Frei: Höhe in % der Nasendicke. Die Ausrichtung hängt nicht davon ab — die Grundplatte liegt immer bei 0° Anstellwinkel.');
+    if (P.noseTip === 'free') field('Höhe der Nasenspitze', num(P.noseTipPct, 1, 0, 100, v => { P.noseTipPct = v; }), '%').title = T('0 = an der Unterseite, 50 = Mitte, 100 = an der Oberseite (bezogen auf die Dicke an der Nase)');
+    if (P.nose !== 'round') {
+      field('Nasenlänge oben', num(P.noseLen, 0.5, 0.2, 40, v => { P.noseLen = v; }), '%');
+      field('Nasenlänge unten', num(P.noseLenB, 0.5, 0.2, 40, v => { P.noseLenB = v; }), '%');
+    }
 
     // Stufen
     box.appendChild(mk('div', 'gh', T('Stufen')));
     if (!P.steps.length) box.appendChild(mk('div', 'fdb-hint', T('Keine Stufe — ebene Platte.')));
     P.steps.forEach((s, i) => {
       const row = mk('div', 'fdb-btns'); row.style.alignItems = 'center';
-      const sd = sel([['top', 'oben'], ['bot', 'unten']], s.side, v => { s.side = v; });
+      const sd = sel([['top', 'oben'], ['bot', 'unten'], ['both', 'oben + unten']], s.side, v => { s.side = v; });
       const a = num(s.pos, 1, 5, 95, v => { s.pos = v; }); a.title = T('Lage der Stufe von der Nase (% der Sehne)'); a.style.width = '64px';
       const h = num(s.h, 0.1, 0.1, 30, v => { s.h = v; }); h.title = T('Stufenhöhe = Dicke der Lage (% der Sehne)'); h.style.width = '64px';
       const x = mk('button', null, '✕'); x.title = T('Stufe entfernen'); x.onclick = () => { P.steps.splice(i, 1); redo(); };
@@ -577,8 +855,18 @@
       box.appendChild(row);
     });
     { const row = mk('div', 'fdb-btns'); const b = mk('button', null, T('+ Stufe'));
-      b.onclick = () => { P.steps.push({ side: 'top', pos: 50, h: P.t0 }); redo(); };
-      b.disabled = P.steps.length >= 6; row.appendChild(b); box.appendChild(row); }
+      // Neue Stufe hinter die letzte setzen (halber Weg zur Endleiste), gleiche Seite
+      // und Höhe — sonst läge sie auf der ersten und wäre nicht als eigene zu sehen.
+      b.onclick = () => {
+        const last = P.steps.reduce((m, s) => (+s.pos > +m.pos ? s : m), { pos: 0, side: 'top', h: P.t0 });
+        const pos = P.steps.length ? Math.min(95, Math.round(+last.pos + (100 - last.pos) / 2)) : 50;
+        P.steps.push({ side: last.side, pos, h: +last.h || P.t0 }); redo(); };
+      b.disabled = P.steps.length >= 8; row.appendChild(b);
+      // Alle Stufen auf „oben + unten" stellen (gleiche Lagen wie oben, gespiegelt).
+      const bs = mk('button', null, T('Alle symmetrisch')); bs.title = T('Jede Stufe oben und unten gleich (oben + unten an derselben Stelle)');
+      bs.onclick = () => { const seen = new Set(); P.steps = P.steps.filter(s => { const k = s.pos + '/' + s.h; if (seen.has(k)) return false; seen.add(k); return true; }).map(s => Object.assign(s, { side: 'both' })); redo(); };
+      bs.disabled = !P.steps.length || P.steps.every(s => s.side === 'both'); row.appendChild(bs);
+      box.appendChild(row); }
 
     // Knicke
     box.appendChild(mk('div', 'gh', T('Knicke (Knickplatte)')));
