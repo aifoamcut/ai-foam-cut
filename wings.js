@@ -38,6 +38,8 @@
     'holm',
     // Steghöhen (stegh.js)
     'stegH',
+    // Laminierplan (laminat.js)
+    'lam',
     // Werkstoff-Zuweisung (Reiter „Projektübersicht")
     'design', 'matId', 'matHeight', 'negMatId', 'negMatHeight', 'matHMode', 'designBlockH',
     // Gewichtsabschätzung (Reiter „Projektübersicht")

@@ -297,7 +297,9 @@
       go(P4(p.l, 0, p.r, 0), false);                        // vertikal auf 0 (Schnitt)
       go(P4(p.l, safeY, p.r, safeY), true);                 // hoch auf Sicherheitshöhe
     };
-    edgeCut(rear); edgeCut(front);                          // Reihenfolge wie negGcode: hinten, dann vorne
+    const se0 = state.cfg.negShellEdge || 0;               // Latte nur vorne/hinten: andere Seite nur mit konst. Rand
+    if (!latte || P.root.geom.latteR || se0 > 0) edgeCut(rear);
+    if (!latte || P.root.geom.latteF || se0 > 0) edgeCut(front);                          // Reihenfolge wie negGcode: hinten, dann vorne
     go(P4(0, safeY, 0, safeY), true);                       // über den Block zurück
     go(P4(0, 0, 0, 0), true);                               // zurück auf den Nullpunkt
     return mv;

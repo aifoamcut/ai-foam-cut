@@ -42,8 +42,22 @@
         if (sparModeOf(sp) !== 'during') return;   // eigene Bahnen im Modus „nach…"
         const yco = sparYc(sp);
         const coreR = pr.rootCore || sparCoreOf(cut.root.pts, segIdx, 'root'), coreT = pr.tipCore || sparCoreOf(cut.tip.pts, segIdx, 'tip');
-        const gr = sparOnProfile(sp, cut.root.pts, coreR || cut.root.pts, sparFromLE(sp, segIdx, 'root'), yco, 'root', coreR);
-        const gt = sparOnProfile(sp, cut.tip.pts, coreT || cut.tip.pts, sparFromLE(sp, segIdx, 'tip'), yco, 'tip', coreT);
+        const geo = s => [
+          sparOnProfile(s, cut.root.pts, coreR || cut.root.pts, sparFromLE(sp, segIdx, 'root'), yco, 'root', coreR),
+          sparOnProfile(s, cut.tip.pts, coreT || cut.tip.pts, sparFromLE(sp, segIdx, 'tip'), yco, 'tip', coreT)];
+        let [gr, gt] = geo(sp);
+        // „Kürzester Weg": Wurzel und Rand MÜSSEN von derselben Seite anfahren — sonst
+        // mischt sparHoleInsert einen Oben- mit einem Unten-Abzweig (Turmbahnen kaputt;
+        // typisch: waagrechter Holm, Profil wird nach außen dünner). Seite mit der
+        // kleineren Summe der Anfahrlängen für beide nehmen.
+        const upR = gr && gr.lead && gr.lead[1].y >= gr.lead[0].y, upT = gt && gt.lead && gt.lead[1].y >= gt.lead[0].y;
+        if (gr && gr.lead && gt && gt.lead && upR !== upT) {
+          const len = g => Math.abs(g.lead[1].y - g.lead[0].y);
+          const gU = geo(Object.assign({}, sp, { approach: 'top' })), gB = geo(Object.assign({}, sp, { approach: 'bottom' }));
+          const sU = gU[0] && gU[1] && gU[0].lead && gU[1].lead ? len(gU[0]) + len(gU[1]) : Infinity;
+          const sB = gB[0] && gB[1] && gB[0].lead && gB[1].lead ? len(gB[0]) + len(gB[1]) : Infinity;
+          [gr, gt] = sB < sU ? gB : gU;
+        }
         if (!gr || !gr.lead || !gt || !gt.lead) return;   // reicht bis zur Oberfläche -> überspringen
         const kh = App.sparKerfHalf(sp, cut, gr.poly, gt.poly);   // Abbrand je Rippe (Modus/Bezug: global oder je Holm)
         const ins = sparHoleInsert(root, tip, gr, gt, kh, cut.root.pts, cut.tip.pts, prop);

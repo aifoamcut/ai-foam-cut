@@ -112,6 +112,66 @@
       ]
     },
     {
+      "id": "bibliothek",
+      "name": "Projektbibliothek (eigene Projekte, Vorlagen)",
+      "description": "Reiter „Projektbibliothek“: eigene Projekte mit Name, Kategorie und Beschreibung auf diesem Computer sammeln (Grundriss-Vorschau, Suche, öffnen, überschreiben, exportieren, .json importieren) und mitgelieferte Vorlagen (Segler, Nurflügel, Pylon, Trainer, Testflügel) als neues Projekt öffnen.",
+      "files": [
+        "bibliothek.js"
+      ],
+      "tabs": [
+        "bib"
+      ],
+      "default": true,
+      "views": [
+        "bibView"
+      ]
+    },
+    {
+      "id": "bauanleitung",
+      "name": "Bauanleitung (druckbar, PDF)",
+      "description": "Reiter „Bauanleitung“: aus dem Projekt eine Bauanleitung erzeugen — Grundriss, Segmenttabelle, Styroporblöcke, Kerne schneiden, Negativschalen, Holm, Laminierplan, Rippen, Gewicht; eigene Schritte mit Text und Bildern (Ansicht eines Reiters einfügen oder Bilddatei); drucken bzw. als PDF oder HTML speichern.",
+      "files": [
+        "bauanleitung.js"
+      ],
+      "tabs": [
+        "bau"
+      ],
+      "default": true,
+      "views": [
+        "bauView"
+      ]
+    },
+    {
+      "id": "laminat",
+      "name": "Laminierplan (Zuschnitte, Rollenverbrauch, Harz, Topfzeit)",
+      "description": "Reiter „Laminierplan“: Lagenaufbau der Schale je Tragfläche, Zuschnitte als Abwicklung der Profilseiten mit Zugabe, Verschachtelung auf die Rollenbreite (Meter je Gewebe), Gewebe-/Harzmasse, Abreißgewebe/Vlies/Vakuumsack, Ablauf gegen die Topfzeit; Holmgurte und Torsionslagen aus der Holmauslegung übernehmen; Zuschnitt-DXF und CSV.",
+      "files": [
+        "laminat.js"
+      ],
+      "tabs": [
+        "lam"
+      ],
+      "default": true,
+      "views": [
+        "lamView"
+      ]
+    },
+    {
+      "id": "drehachse",
+      "name": "Drehachse (Drehtisch)",
+      "description": "Reiter „Drehachse“: Schneiden mit Drehtisch (senkrechte Achse, grblHAL A/B/C) wie bei devFoam 3D. Teil als STL/OBJ/STEP, aus dem Reiter 3D-Modell oder als Testkörper. Je Tischwinkel schneidet der Draht die Silhouette, danach dreht der Tisch. Winkel gleichmäßig, als Liste oder automatisch nach der Geometrie. Dazu Sockel, Rohling, Abbrand, eigene 3D-Simulation mit Wiedergabe, Schnittfenster und Übergabe an „Schneiden“. Drehteller als Maschineneigenschaft (Reiter Maschine, ein-/ausschaltbar): fünfte Achse in Positionsanzeige und Handfahrt, Quelle „Drehtisch“ im Reiter „Schneiden“ mit Monitor, Startsperre bei fehlender Achse.",
+      "files": [
+        "drehachse.js"
+      ],
+      "tabs": [
+        "rot"
+      ],
+      "default": true,
+      "views": [
+        "rotView"
+      ]
+    },
+    {
       "id": "formenbau",
       "name": "Formenbau (Urmodell / Negativform als STL)",
       "description": "Reiter „Formenbau“: aus dem Tragflächendesign ein Urmodell (Positiv) oder die beiden Negativform-Hälften als STL für 3D-Druck und CNC-Fräsen ableiten; Profile per Bezier-/B-Spline-Ausgleich geglättet, Randbogen mit einstellbarem Wingtip.",

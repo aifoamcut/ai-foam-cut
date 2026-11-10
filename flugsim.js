@@ -17,7 +17,7 @@
   const G = 9.81, RHO = 1.225;
 
   const DEF = { mass: 0, load: 35, motor: true, thrust: 0, cd0: 0.03, rate: 100, expo: 30, wind: 2, windDir: 0, thermal: true,
-    cam: 'pilot', start: 'hand', cgPct: 30, npPct: 42, scene: 'flat', plane: 'f3f', loadF3f: 40, slopeH: 60, slopeDeg: 35, quality: 'mittel',
+    cam: 'pilot', start: 'hand', cgPct: 30, npPct: 42, scene: 'flat', plane: 'f3f', loadF3f: 40, loadSu26: 68, sound: true, vol: 60, slopeH: 60, slopeDeg: 35, quality: 'mittel',
     pad: { ail: 0, ele: 1, rud: 2, thr: 3, invAil: false, invEle: true, invRud: false, invThr: true } };
   const LS_KEY = 'hw_fsim_cfg'; let lsLast = '', lsT = 0;
   function saveLs() { try { const j = JSON.stringify(cfg()); if (j !== lsLast) { localStorage.setItem(LS_KEY, j); lsLast = j; } } catch (e) {} }
@@ -58,9 +58,11 @@
 
   // ---------- Flugzeug aus „Flugzeug gesamt“ ----------
   let plane = null;   // { meshes (Körper-Koordinaten m), tex, S, b, c, AR, m, lo, hi }
-  const isF3F = () => cfg().plane !== 'own';
-  function massOf(S) { const c = cfg(); return c.mass > 0 ? c.mass / 1000 : (isF3F() ? c.loadF3f : c.load) * (S * 100) / 1000; }   // g/dm² × dm²
-  function loadPlane() { return isF3F() ? buildF3F() : loadOwn(); }
+  const isF3F = () => cfg().plane === 'f3f';
+  const isSu26 = () => cfg().plane === 'su26';
+  const isBuiltin = () => cfg().plane !== 'own';
+  function massOf(S) { const c = cfg(); return c.mass > 0 ? c.mass / 1000 : (isF3F() ? c.loadF3f : isSu26() ? c.loadSu26 : c.load) * (S * 100) / 1000; }   // g/dm² × dm²
+  function loadPlane() { return isF3F() ? buildF3F() : isSu26() ? buildSu26() : loadOwn(); }
 
   // ---------- Standardmodell: F3F-Hangrennsegler ----------
   // 2,95 m Spannweite, ~55 dm², V-Leitwerk 110°, schlanker Rumpf; Profil gewölbt 1,8 %/8,5 % (NACA-4-Formel).
@@ -134,6 +136,91 @@
     return { meshes: out, tex: {}, S: Sw, b, c: mac, AR: b * b / Sw, m: massOf(Sw), bot: lo[1], len: hi[0] - lo[0], warn: [], name: 'F3F' };
   }
 
+  // ---------- Kunstflug-Motormodell: Sukhoi Su-26M, Maßstab 1:3 ----------
+  // Original 7,80 m / 11,8 m² / 6,83 m lang → 2,60 m, ~1,3 m², 2,28 m. Trapezflügel tief angesetzt, symmetrisches Profil
+  // (NACA 0018 → 0012), runde Sternmotor-Haube, Federstahlfahrwerk mit Spornrad, 2-Blatt-Propeller.
+  function buildSu26() {
+    const c = cfg(), meshes = [];
+    const mk = () => ({ P: [], C: [], U: [], I: [], G: [] });
+    const v = (m, p, col) => { m.P.push(p[0], p[1], p[2]); m.C.push(col[0], col[1], col[2]); m.U.push(0, 0); return m.P.length / 3 - 1; };
+    const q = (m, a, b, cc, d) => { m.I.push(a, b, d, a, d, cc); m.G.push(0, 0); };
+    const fan = (m, ring, col, flip) => { let cx = 0, cy = 0, cz = 0; ring.forEach(i => { cx += m.P[3 * i]; cy += m.P[3 * i + 1]; cz += m.P[3 * i + 2]; });
+      const n = ring.length, ce = v(m, [cx / n, cy / n, cz / n], col); for (let j = 0; j < n; j++) { const a = ring[j], b = ring[(j + 1) % n]; if (flip) m.I.push(ce, b, a); else m.I.push(ce, a, b); m.G.push(0); } };
+    const grid = (m, rows, closed) => { const n = rows[0].length; for (let k = 0; k + 1 < rows.length; k++) for (let j = 0; j < (closed ? n : n - 1); j++) q(m, rows[k][j], rows[k][(j + 1) % n], rows[k + 1][j], rows[k + 1][(j + 1) % n]); };
+    const foil = (t, n) => { const yt = x => 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4), up = [], lo = [];
+      for (let i = 0; i <= n; i++) { const x = 0.5 * (1 - Math.cos(Math.PI * i / n)); up.push([x, yt(x)]); lo.push([x, -yt(x)]); } return up.reverse().concat(lo.slice(1, n)); };
+    // st: {xLE, y, z, c, t, col}; Profil je Station (Dicke t), Punktzahl gleich
+    function loft(st, n, axisY) {
+      const m = mk(), rows = st.map(S => foil(S.t, n).map(([x, y]) => v(m, axisY ? [S.xLE - x * S.c, S.z, y * S.c + S.y] : [S.xLE - x * S.c, S.y + y * S.c, S.z], S.col(x))));
+      grid(m, rows, true); fan(m, rows[0], st[0].col(0.5), !axisY); fan(m, rows[rows.length - 1], st[st.length - 1].col(0.5), !!axisY); return m;
+    }
+    const WHITE = [0.96, 0.96, 0.97], BLUE = [0.10, 0.25, 0.70], RED = [0.85, 0.12, 0.10], DARK = [0.10, 0.12, 0.16], GREY = [0.55, 0.57, 0.60], BLACK = [0.06, 0.06, 0.07];
+    const one = col => () => col;
+    // Tragfläche: tief angesetzt (y = -0.10), 2° V-Form, gerade Endleiste nahezu, Nasenleiste leicht gepfeilt
+    const half = 1.30, cr = 0.63, ct = 0.37, yW = -0.10, st = [], NS = 14;
+    for (let k = -NS; k <= NS; k++) {
+      const e = k / NS, a = Math.abs(e), ch = cr + (ct - cr) * a, z = e * half;
+      const stripe = a > 0.55 && a < 0.72;
+      st.push({ xLE: -0.10 * a * 0.6 + 0.0, y: yW + a * half * Math.tan(1 * Math.PI / 180), z, c: ch, t: 0.18 - 0.06 * a,
+        col: x => (stripe ? BLUE : (a > 0.9 ? RED : (x > 0.75 && a > 0.25 && a < 0.92 ? GREY : WHITE))) });   // graue Querruder
+    }
+    meshes.push(loft(st, 18));
+    let S = 0, C2 = 0, XL = 0;
+    for (let k = 0; k + 1 < st.length; k++) { const dz = Math.abs(st[k + 1].z - st[k].z), cm = (st[k].c + st[k + 1].c) / 2, xm = (st[k].xLE + st[k + 1].xLE) / 2; S += cm * dz; C2 += cm * cm * dz; XL += xm * cm * dz; }
+    const mac = C2 / S, xLEmac = XL / S, b = 2 * half;
+    // Rumpf: Querschnitte als Superellipse; vorn rund (Haube), hinten schmal und hochkant
+    const fm = mk(), NX = 52, NR = 24, xN = 0.72, xT = -1.56, rows = [];
+    for (let i = 0; i <= NX; i++) {
+      const t = i / NX, x = xN + (xT - xN) * t;
+      let rw, rh, yc = 0, ex = 2.2;
+      if (t < 0.03) { const u = t / 0.03; rw = rh = 0.13 + 0.035 * Math.sqrt(u); }               // Haubenring vorn
+      else if (t < 0.30) { rw = 0.165 - 0.015 * (t - 0.03) / 0.27; rh = rw * 1.05; }                  // Motorhaube → Rumpf
+      else { const u = (t - 0.30) / 0.70; rw = 0.15 - 0.135 * Math.pow(u, 0.9); rh = 0.165 - 0.10 * Math.pow(u, 1.1); yc = 0.04 * u; ex = 2.2 + 1.5 * u; }
+      if (i === NX) { rw = 0.004; rh = 0.05; }
+      const canT = (t - 0.27) / 0.20, can = canT > 0 && canT < 1 ? 0.10 * Math.sin(canT * Math.PI) ** 0.7 : 0;   // Haubenblase über dem Flügel
+      const row = [];
+      for (let j = 0; j < NR; j++) { const a = j / NR * 2 * Math.PI, cs = Math.cos(a), sn = Math.sin(a);
+        const pw = (s, p) => Math.sign(s) * Math.pow(Math.abs(s), 2 / p);
+        let y = yc + pw(sn, ex) * rh, z = pw(cs, ex) * rw; if (sn > 0) y += can * Math.pow(sn, 3);
+        const col = sn > 0.4 && can > 0.01 ? DARK : t < 0.04 ? BLUE : (t < 0.30 && sn < 0.15 && sn > -0.15) ? BLUE : (t > 0.8 ? RED : WHITE);
+        row.push(v(fm, [x, y, z], col)); }
+      rows.push(row);
+    }
+    grid(fm, rows, true); fan(fm, rows[0], BLACK, true); fan(fm, rows[NX], RED, false); meshes.push(fm);
+    // Höhenleitwerk (gerade Trapezform, symmetrisch) und Seitenleitwerk
+    const hs = [], hHalf = 0.54;
+    for (let k = -6; k <= 6; k++) { const a = Math.abs(k / 6); hs.push({ xLE: -1.20 - 0.08 * a, y: 0.03, z: k / 6 * hHalf, c: 0.32 - 0.13 * a, t: 0.10, col: x => x > 0.55 ? RED : WHITE }); }
+    meshes.push(loft(hs, 10));
+    const vs = []; for (let k = 0; k <= 6; k++) { const a = k / 6; vs.push({ xLE: -1.08 - 0.30 * a, y: 0, z: 0.05 + a * 0.40, c: 0.48 - 0.22 * a, t: 0.10, col: x => x > 0.55 ? RED : (a > 0.6 ? BLUE : WHITE) }); }
+    meshes.push(loft(vs, 10, true));
+    // Fahrwerk: Federstahlbeine + Räder, Spornrad
+    const gm = mk(), wheel = (cx, cy, cz, r, w) => { const N = 16, A = [], B = []; for (let j = 0; j < N; j++) { const a = j / N * 2 * Math.PI; A.push(v(gm, [cx + Math.cos(a) * r, cy + Math.sin(a) * r, cz - w], BLACK)); B.push(v(gm, [cx + Math.cos(a) * r, cy + Math.sin(a) * r, cz + w], BLACK)); } grid(gm, [A, B], true); fan(gm, A, GREY, true); fan(gm, B, GREY, false); };
+    const leg = (p0, p1, d) => { const A = [], B = [], o = [[0, -d, -d], [0, d, -d], [0, d, d], [0, -d, d]]; o.forEach(s => { A.push(v(gm, add(p0, [d, s[1], s[2]]), GREY)); B.push(v(gm, add(p1, [d, s[1], s[2]]), GREY)); }); grid(gm, [A, B], true); };
+    const yWh = -0.40, rWh = 0.065;
+    [1, -1].forEach(s => { leg([0.18, -0.13, s * 0.06], [0.22, yWh, s * 0.26], 0.012); wheel(0.22, yWh, s * 0.27, rWh, 0.025); });
+    leg([-1.45, -0.04, 0], [-1.50, -0.14, 0], 0.006); wheel(-1.50, -0.16, 0, 0.025, 0.010);
+    meshes.push(gm);
+    // Spinner + 2-Blatt-Propeller (Ø 0,66 m)
+    const pm = mk(), sp = []; for (let i = 0; i <= 6; i++) { const u = i / 6, row = []; for (let j = 0; j < 14; j++) { const a = j / 14 * 2 * Math.PI, r = 0.085 * Math.sqrt(Math.max(0, 1 - u * u)) + 0.0005; row.push(v(pm, [xN + 0.02 + 0.13 * u, Math.sin(a) * r, Math.cos(a) * r], WHITE)); } sp.push(row); }
+    sp.reverse(); grid(pm, sp, true); pm.spin = 'blade';   // Spinner dreht mit
+    // Blätter mit Steigung (vorne/hinten gegeneinander verdreht), dreht um die Körper-X-Achse (y = z = 0)
+    const bm = mk(); bm.spin = 'blade';
+    [1, -1].forEach(s => { const A = [], B = []; [[-0.008, 0.032], [0.008, -0.032], [0.016, -0.028], [0, 0.036]].forEach(([dx, dz]) => { A.push(v(bm, [xN + 0.06 + dx, s * 0.06, s * dz], BLACK)); B.push(v(bm, [xN + 0.06 + dx * 0.4, s * 0.33, s * dz * 0.45], BLACK)); }); grid(bm, [A, B], true); fan(bm, B, BLACK, false); });
+    meshes.push(pm, bm);
+    // halbdurchsichtige Propellerscheibe, sichtbar bei hoher Drehzahl
+    const dm = mk(); dm.spin = 'disc'; { const ring = []; for (let j = 0; j < 40; j++) { const a = j / 40 * 2 * Math.PI; ring.push(v(dm, [xN + 0.062, Math.sin(a) * 0.33, Math.cos(a) * 0.33], [0.35, 0.36, 0.38])); } fan(dm, ring, [0.35, 0.36, 0.38], false); }
+    meshes.push(dm);
+    // auf den Schwerpunkt schieben (wie beim F3F)
+    const cgx = xLEmac - mac * (c.cgPct / 100);
+    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    const out = meshes.map(m => { const P = new Float32Array(m.P.length); for (let k = 0; k < P.length; k += 3) { P[k] = m.P[k] - cgx; P[k + 1] = m.P[k + 1]; P[k + 2] = m.P[k + 2]; for (let j = 0; j < 3; j++) { lo[j] = Math.min(lo[j], P[k + j]); hi[j] = Math.max(hi[j], P[k + j]); } }
+      return { P, C: m.C, U: m.U, I: m.I, G: m.G, tex: null, spin: m.spin }; });
+    const m = massOf(S);
+    // Kunstflug: symmetrisches Profil (a0 = 0), großer Ruderausschlag, Schub ≈ 1,8 × Gewicht (Benziner ~ 60 cm³)
+    return { meshes: out, tex: {}, S, b, c: mac, AR: b * b / S, m, bot: lo[1], len: hi[0] - lo[0], warn: [], name: 'Su-26M',
+      aero: { a0: 0, cd0: 0.028, roll: 3.2, pitch: 1.8, yaw: 2.2, side: 1.6, tw: 1.8 } };
+  }
+
   function loadOwn() {
     const F = window.Flugzeug, B = F && F._test && F._test.buildModel;
     if (!B) return { err: T('Der Reiter „Flugzeug gesamt“ fehlt in dieser Ausgabe.') };
@@ -181,7 +268,7 @@
   const S0 = () => ({ p: [0, 2, 0], v: [0, 0, 0], R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], w: [0, 0, 0], thr: 0, crashed: null, t: 0, vario: 0, ground: false });
   let sim = S0(), keys = {}, ctl = { ail: 0, ele: 0, rud: 0, thr: 0 }, paused = false, therm = [];
   function trimSpeed() { return Math.sqrt(2 * plane.m * G / (RHO * plane.S * 0.45)); }
-  function thrustMax() { const c = cfg(); if (isF3F()) return 0; return c.thrust > 0 ? c.thrust : (c.motor ? plane.m * G * 0.8 : 0); }
+  function thrustMax() { const c = cfg(); if (isF3F()) return 0; if (plane && plane.aero && plane.aero.tw) return plane.m * G * plane.aero.tw; return c.thrust > 0 ? c.thrust : (c.motor ? plane.m * G * 0.8 : 0); }
   function launch(mode) { const th = sim.thr; reset(mode); if (mode === 'hand') sim.thr = th; }
   function reset(mode) {
     const c = cfg(); mode = mode || 'wait'; sim = S0(); if (!plane || plane.err) return;   // Gas immer 0 zu Beginn (S0)
@@ -255,20 +342,20 @@
     const wb = sim.w, pR = wb[0], qR = wb[2], rR = -wb[1];
     // Bodeneffekt: weniger induzierter Widerstand, etwas mehr Auftriebsanstieg dicht über Grund
     const hAGL = Math.max(0.01, sim.p[1] + P.bot - terrainH(sim.p[0], sim.p[2])), ge = Math.pow(16 * hAGL / P.b, 2), geF = ge / (1 + ge);
-    const CLa = 2 * Math.PI * P.AR / (P.AR + 2) * (1 + 0.08 * (1 - geF)), aS = 0.21, a0 = -0.03;
+    const AE = P.aero || {}, CLa = 2 * Math.PI * P.AR / (P.AR + 2) * (1 + 0.08 * (1 - geF)), aS = 0.21, a0 = AE.a0 !== undefined ? AE.a0 : -0.03;
     const aa = Math.abs(alpha - a0), stalled = aa > aS;
     let CL = CLa * (alpha - a0);
     if (stalled) CL = Math.sign(alpha - a0) * CLa * aS * Math.max(0.3, 1 - (aa - aS) * 2.2);
     if (vb[0] < 0) CL *= 0.2;
     // Reynolds-Einfluss auf den Profilwiderstand (kleine Modelle/langsam → mehr Widerstand)
-    const Re = Math.max(1e4, Va * P.c / 1.5e-5), cd0 = (isF3F() ? 0.016 : c.cd0) * clamp(Math.pow(1.5e5 / Re, 0.2), 0.8, 1.7);
+    const Re = Math.max(1e4, Va * P.c / 1.5e-5), cd0 = (isF3F() ? 0.016 : P.aero ? P.aero.cd0 : c.cd0) * clamp(Math.pow(1.5e5 / Re, 0.2), 0.8, 1.7);
     const CD = cd0 + CL * CL / (Math.PI * 0.8 * P.AR) * geF + (stalled ? 0.7 * Math.sin(aa) : 0) + 0.3 * beta * beta;
     let F = [0, -P.m * G, 0];
     if (Va > 0.1) {
       const vh = mul(air, 1 / Va), right = R[2];
       F = add(F, mul(norm(cross(right, vh)), qd * P.S * CL));
       F = add(F, mul(vh, -qd * P.S * CD));
-      F = add(F, mul(right, -qd * P.S * 0.5 * beta));   // Seitenkraft Rumpf/Seitenleitwerk
+      F = add(F, mul(right, -qd * P.S * 0.5 * (AE.side || 1) * beta));   // Seitenkraft Rumpf/Seitenleitwerk
     }
     // Schub (nimmt mit der Fahrt ab), Propellerstrahl macht Höhe/Seite auch im Stand wirksam
     const Tm = thrustMax(), Tn = Tm > 0 && sim.thr > 0 ? Tm * sim.thr * Math.max(0, 1 - Math.max(0, vb[0]) / (V0 * 3.5)) : 0;
@@ -277,15 +364,15 @@
     // Drehbewegung — Eigenfrequenzen aus Fahrt und Größe, Stabilität aus dem Schwerpunkt (Stabilitätsmaß sigma)
     const Lr = Math.max(0.3, P.len), sigma = ((+c.npPct || 42) - (+c.cgPct || 30)) / 100;
     const wq = 0.25 * Va / Math.sqrt(P.c * Lr), kq = wq * wq * clamp(sigma / 0.1, -1, 2.5);
-    const eleAuth = 0.22 * clamp(Math.sqrt(0.1 / Math.max(sigma, 0.02)), 0.5, 2.2) * (stalled ? 0.5 : 1);
+    const eleAuth = 0.22 * (AE.pitch || 1) * clamp(Math.sqrt(0.1 / Math.max(sigma, 0.02)), 0.5, 2.2) * (stalled ? 0.5 : 1);
     const aTrim = 0.45 / CLa + a0;
     const qdd = kq * ((aTrim + u.ele * eleAuth) - alpha) - 2 * 0.45 * wq * qR + wash * 25 * u.ele;   // sigma < 0: kq < 0 → instabil
-    const pMax = 0.09 * 2 * Va / P.b * (stalled ? 0.4 : 1), lp = clamp(1.5 * Va / P.b, 1, 45);
+    const pMax = 0.09 * (AE.roll || 1) * 2 * Va / P.b * (stalled ? 0.4 : 1), lp = clamp(1.5 * Va / P.b, 1, 45);
     let pdd = lp * (u.ail * pMax - pR) - 6 * f * beta + 0.6 * f * rR;   // V-Form-Effekt, Rollmoment aus Gieren
     if (stalled && vb[0] > 0) pdd += sim.tip * 30 * f * (aa - aS);         // Abkippen über eine Fläche
     else sim.tip = beta > 0.02 ? -1 : beta < -0.02 ? 1 : sim.tip;
     const wr = 0.4 * Va / Lr;
-    let rdd = wr * wr * (beta + 0.22 * u.rud * (stalled ? 0.6 : 1)) - 2 * 0.3 * wr * rR - 1.2 * f * u.ail * pMax + wash * 20 * u.rud;   // Windfahne, Dämpfung, negatives Wendemoment
+    let rdd = wr * wr * (beta + 0.22 * (AE.yaw || 1) * u.rud * (stalled ? 0.6 : 1)) - 2 * 0.3 * wr * rR - 1.2 * f * u.ail * pMax / (AE.roll || 1) + wash * 20 * u.rud;   // Windfahne, Dämpfung, negatives Wendemoment
     if (sim.ground) { const gs = Math.min(1, len(sim.v) / 3); rdd += 8 * (u.rud * 0.8 * gs - rR); pdd -= 15 * pR; }
     sim.w = [pR + pdd * dt, wb[1] - rdd * dt, qR + qdd * dt];
     // Translation
@@ -293,14 +380,60 @@
     sim.p = add(sim.p, mul(sim.v, dt));
     sim.R = rotAxes(R, sim.w, dt);
     sim.vario = sim.vario * 0.98 + sim.v[1] * 0.02;
+    engine(dt, Math.max(0, vb[0]));
     sim.t += dt; sim.stalled = stalled; sim.agl = hAGL;
     ground(dt, V0);
+  }
+  // Motor: läuft ab dem ersten Gasgeben, Leerlauf ~1800 U/min, Vollgas ~7000 U/min; Hochlauf ~0,35 s, Windmühle durch Fahrt
+  const RPM_IDLE = 1800, RPM_MAX = 7000;
+  function engine(dt, vx) {
+    if (thrustMax() <= 0) { sim.rpm = 0; return; }
+    if (sim.thr > 0.03) sim.run = true;
+    const tgt = sim.run ? RPM_IDLE + (RPM_MAX - RPM_IDLE) * sim.thr + vx * 25 : 0;
+    sim.rpm = (sim.rpm || 0) + (tgt - (sim.rpm || 0)) * Math.min(1, dt / (tgt > (sim.rpm || 0) ? 0.35 : 0.6));
+    sim.propA = ((sim.propA || 0) + sim.rpm / 60 * 2 * Math.PI * dt) % (2 * Math.PI);
+  }
+  // ---------- Motorgeräusch (Web Audio, synthetisch) ----------
+  // Einzylinder-Zweitakter: Zündfrequenz = U/min / 60 (Sägezahn), Propeller-Blattfrequenz ×2 (Rechteck), Rauschen fürs Rauschen
+  // des Auspuffs; Tiefpass öffnet mit der Drehzahl. Lautstärke nach Entfernung zum Zuhörer (Kamera), Doppler aus der Radialfahrt.
+  let AU = null, lastEye = null;
+  function audioInit() {
+    if (AU || !cfg().sound) { if (AU && AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    try {
+      const ctx = new AC(), out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1.2; lp.connect(out);
+      const sh = ctx.createWaveShaper(), cur = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 127.5 - 1; cur[i] = Math.tanh(2.2 * x); } sh.curve = cur; sh.connect(lp);
+      const o1 = ctx.createOscillator(), g1 = ctx.createGain(); o1.type = 'sawtooth'; g1.gain.value = 0.55; o1.connect(g1); g1.connect(sh);
+      const o2 = ctx.createOscillator(), g2 = ctx.createGain(); o2.type = 'square'; g2.gain.value = 0.18; o2.connect(g2); g2.connect(sh);
+      const o3 = ctx.createOscillator(), g3 = ctx.createGain(); o3.type = 'triangle'; g3.gain.value = 0.35; o3.connect(g3); g3.connect(sh);   // Unterton (Kurbelwelle)
+      const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      const ns = ctx.createBufferSource(); ns.buffer = nb; ns.loop = true; const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8; const gn = ctx.createGain(); gn.gain.value = 0.25;
+      ns.connect(bp); bp.connect(gn); gn.connect(lp);
+      [o1, o2, o3, ns].forEach(n => n.start());
+      AU = { ctx, out, lp, o1, o2, o3, bp, gn };
+    } catch (e) { console.warn('Flugsimulator: Audio', e); }
+  }
+  function audioUpdate(on) {
+    if (!AU) return;
+    const c = cfg(), t = AU.ctx.currentTime, k = 0.06, rpm = sim.rpm || 0;
+    let g = 0;
+    if (on && c.sound && rpm > 50 && plane && !plane.err) {
+      const eye = lastEye || sim.p, d = Math.max(1, len(sub(sim.p, eye))), vr = dot(sim.v, norm(sub(sim.p, eye)));
+      const dop = 343 / (343 + clamp(vr, -150, 150)), f = rpm / 60 * dop;
+      AU.o1.frequency.setTargetAtTime(f, t, k); AU.o2.frequency.setTargetAtTime(2 * f, t, k); AU.o3.frequency.setTargetAtTime(f / 2, t, k);
+      AU.bp.frequency.setTargetAtTime(400 + 3 * f, t, k); AU.lp.frequency.setTargetAtTime(500 + rpm * 0.45 * dop, t, k);
+      const load = clamp(rpm / RPM_MAX, 0, 1);
+      g = (0.25 + 0.75 * load * load) * Math.min(1, 12 / d) * (c.vol / 100) * 0.5;
+      AU.gn.gain.setTargetAtTime(0.15 + 0.35 * sim.thr, t, k);
+    }
+    AU.out.gain.setTargetAtTime(g, t, on ? 0.05 : 0.02);
   }
   function ground(dt, V0) {
     const lo = lowestPoint(); if (lo.d >= 0) { sim.ground = false; return; }
     const n = terrainN(lo.q[0], lo.q[2]), vn = dot(sim.v, n), up = dot(sim.R[1], n);
     if (vn < -Math.max(2.5, V0 * 0.4) || up < 0.55 || len(sim.v) > V0 * 2.2 || lo.tip) {
-      sim.crashed = vn < -4 || len(sim.v) > V0 * 2.2 ? T('Absturz!') : T('Bruchlandung!'); sim.v = [0, 0, 0]; sim.w = [0, 0, 0]; return;
+      sim.crashed = vn < -4 || len(sim.v) > V0 * 2.2 ? T('Absturz!') : T('Bruchlandung!'); sim.v = [0, 0, 0]; sim.w = [0, 0, 0]; sim.run = false; sim.rpm = 0; return;
     }
     sim.p = add(sim.p, mul(n, -lo.d / Math.max(0.3, n[1])));
     if (vn < 0) sim.v = sub(sim.v, mul(n, vn));
@@ -322,7 +455,7 @@
   // ---------- Darstellung ----------
   let win = null, cv = null, hud = null, msg = null, gl = null, prog = null, gprog = null, draws = [], world = [], texs = [], raf = 0, last = 0;
   const VS = '#version 300 es\nin vec3 aP;in vec3 aN;in vec3 aC;in vec2 aT;uniform mat4 uVP;uniform mat4 uM;uniform vec4 uTM;uniform float uShadow;uniform float uGY;out vec3 vN;out vec3 vC;out vec2 vT;out vec3 vW;void main(){vec4 w=uM*vec4(aP,1.0);if(uShadow>0.5){w.y=uGY;}vW=w.xyz;vN=mat3(uM)*aN;vC=aC;vT=vec2((aT.x-uTM.x)*uTM.z,(aT.y-uTM.y)*uTM.w);gl_Position=uVP*w;}';
-  const FS = '#version 300 es\nprecision highp float;in vec3 vN;in vec3 vC;in vec2 vT;in vec3 vW;uniform sampler2D uTex;uniform float uUse;uniform float uShadow;uniform vec3 uEye;uniform vec3 uFog;out vec4 o;void main(){if(uShadow>0.5){o=vec4(0.0,0.0,0.0,0.35);return;}vec3 n=normalize(vN);vec3 L=normalize(vec3(0.35,0.85,0.25));float d=max(dot(n,L),0.0)*0.7+abs(dot(n,L))*0.15;vec4 t=texture(uTex,vT);vec3 c=mix(vC,t.rgb,t.a*uUse);vec3 col=c*(0.38+0.75*d);float f=1.0-exp(-length(vW-uEye)/900.0);o=vec4(mix(col,uFog,f),1.0);}';
+  const FS = '#version 300 es\nprecision highp float;in vec3 vN;in vec3 vC;in vec2 vT;in vec3 vW;uniform sampler2D uTex;uniform float uUse;uniform float uShadow;uniform vec3 uEye;uniform vec3 uFog;uniform float uAlpha;out vec4 o;void main(){if(uShadow>0.5){o=vec4(0.0,0.0,0.0,0.35);return;}vec3 n=normalize(vN);vec3 L=normalize(vec3(0.35,0.85,0.25));float d=max(dot(n,L),0.0)*0.7+abs(dot(n,L))*0.15;vec4 t=texture(uTex,vT);vec3 c=mix(vC,t.rgb,t.a*uUse);vec3 col=c*(0.38+0.75*d);float f=1.0-exp(-length(vW-uEye)/900.0);o=vec4(mix(col,uFog,f),uAlpha);}';
   // Boden: prozedurales Gras, Mähstreifen, Piste
   const GVS = '#version 300 es\nin vec3 aP;in vec3 aN;uniform mat4 uVP;out vec3 vW;out vec3 vN;void main(){vW=aP;vN=aN;gl_Position=uVP*vec4(vW,1.0);}';
   const GFS = '#version 300 es\nprecision highp float;in vec3 vW;in vec3 vN;uniform vec3 uEye;uniform float uRwy;uniform vec3 uFog;out vec4 o;float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}void main(){vec2 p=vW.xz;float g=n(p*0.05)*0.5+n(p*0.4)*0.3+n(p*3.0)*0.2;vec3 c=mix(vec3(0.22,0.38,0.14),vec3(0.36,0.52,0.20),g);float s=step(0.5,fract(p.x/12.0));c*=0.94+0.06*s;vec3 n=normalize(vN);float st=1.0-n.y;c=mix(c,vec3(0.40,0.36,0.28),smoothstep(0.25,0.6,st)*0.7);c*=0.55+0.5*max(dot(n,normalize(vec3(0.35,0.85,0.25))),0.0);if(uRwy>0.5&&abs(p.y)<4.0&&abs(p.x)<60.0){c=mix(vec3(0.42,0.50,0.30),c,0.35);if(abs(abs(p.y)-3.8)<0.12)c=vec3(0.85);}float f=1.0-exp(-length(vW-uEye)/700.0);o=vec4(mix(c,uFog,f),1.0);}';
@@ -345,6 +478,7 @@
     thrBox = document.createElement('div'); thrBox.style.cssText = 'position:absolute;left:12px;bottom:52px;z-index:3;width:44px;padding:6px 0 4px;border-radius:8px;background:rgba(10,14,20,.65);color:#fff;font:11px sans-serif;text-align:center;pointer-events:none';
     thrBox.innerHTML = '<div>' + T('Gas') + '</div><div style="position:relative;width:14px;height:110px;margin:4px auto;border:1px solid rgba(255,255,255,.5);border-radius:3px;overflow:hidden"><div class="fsThr" style="position:absolute;left:0;right:0;bottom:0;height:0;background:linear-gradient(#ff7a3c,#ffd25a)"></div></div><div class="fsThrT" style="font:bold 12px monospace">0 %</div>';
     win.append(cv, hud, msg, thrBox, bar); host.appendChild(win);
+    win.addEventListener('pointerdown', audioInit);
     gl = cv.getContext('webgl2', { antialias: true, alpha: true, depth: true });
     if (!gl) { hud.textContent = T('WebGL2 nicht verfügbar.'); return; }
     const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(o)); return o; };
@@ -359,6 +493,7 @@
       else if (/INPUT|SELECT|TEXTAREA/.test(tn)) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyB', 'Space'].includes(e.code)) { e.preventDefault(); padUsed = false; }
       if (e.type === 'keydown') {
+        audioInit();
         if (e.code === 'KeyR' && !e.ctrlKey) reset();
         if (e.code === 'KeyC' && !e.ctrlKey) toggleCam();
         if (e.code === 'KeyP' || e.code === 'Escape') paused = !paused;
@@ -443,7 +578,7 @@
       for (let k = 0; k < m.G.length; k++) (byG[m.G[k]] = byG[m.G[k]] || []).push(I[3 * k], I[3 * k + 1], I[3 * k + 2]);
       const all = [], parts = []; for (const g in byG) { parts.push({ g: +g, off: all.length * 4, n: byG[g].length }); for (const v of byG[g]) all.push(v); }
       const o = vao([[prog, 'aP', m.P, 3], [prog, 'aN', normals(m.P, I), 3], [prog, 'aC', new Float32Array(m.C), 3], [prog, 'aT', new Float32Array(m.U), 2]], new Uint32Array(all));
-      parts.forEach(p => { const t = m.tex === 'fus' ? tx.fus : p.g === 2 ? tx[m.tex + 'top'] : p.g === 3 ? tx[m.tex + 'bot'] : null; draws.push({ vao: o.vao, off: p.off, n: p.n, tex: t }); });
+      parts.forEach(p => { const t = m.tex === 'fus' ? tx.fus : p.g === 2 ? tx[m.tex + 'top'] : p.g === 3 ? tx[m.tex + 'bot'] : null; draws.push({ vao: o.vao, off: p.off, n: p.n, tex: t, spin: m.spin }); });
     });
   }
   let camPos = [0, 1.7, 0];
@@ -469,7 +604,7 @@
     gl.viewport(0, 0, w, h); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
     if (!plane || plane.err) return;
     if (world.scene !== sceneKey()) buildWorld();
-    const { vp, eye } = camera();
+    const { vp, eye } = camera(); lastEye = eye;
     gl.useProgram(gprog);
     gl.uniformMatrix4fv(gl.getUniformLocation(gprog, 'uVP'), false, vp); gl.uniform3fv(gl.getUniformLocation(gprog, 'uEye'), eye); gl.uniform3fv(gl.getUniformLocation(gprog, 'uFog'), FOG);
     gl.uniform1f(gl.getUniformLocation(gprog, 'uRwy'), isSlope() ? 0 : 1);
@@ -484,13 +619,20 @@
     gl.uniformMatrix4fv(U('uM'), false, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
     world.forEach(o => { gl.bindVertexArray(o.vao); gl.drawElements(gl.TRIANGLES, o.n, gl.UNSIGNED_INT, 0); });
     // Flugzeug + Schatten
-    gl.uniformMatrix4fv(U('uM'), false, modelMat(sim.R, sim.p));
+    const M0 = modelMat(sim.R, sim.p), pc = Math.cos(sim.propA || 0), ps = Math.sin(sim.propA || 0);
+    const Mp = mm(M0, [1, 0, 0, 0, 0, pc, ps, 0, 0, -ps, pc, 0, 0, 0, 0, 1]);   // Drehung um Körper-X (Propellerachse)
+    const rps = (sim.rpm || 0) / 60, discA = clamp((rps - 8) / 40, 0, 0.45);   // Scheibe erst bei hoher Drehzahl
+    gl.uniform1f(U('uAlpha'), 1);
     const drawPlane = shadow => draws.forEach(d => {
+      if (d.spin === 'disc') return;
+      gl.uniformMatrix4fv(U('uM'), false, d.spin ? Mp : M0);
       gl.bindVertexArray(d.vao);
       if (!shadow) { gl.bindTexture(gl.TEXTURE_2D, d.tex ? d.tex.t : texs._none); gl.uniform1f(U('uUse'), d.tex ? 1 : 0); const m = d.tex ? d.tex.m : [0, 0, 1, 1]; gl.uniform4f(U('uTM'), m[0], m[1], m[2], m[3]); }
       gl.drawElements(gl.TRIANGLES, d.n, gl.UNSIGNED_INT, d.off);
     });
     drawPlane(false);
+    if (discA > 0.01) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.uniform1f(U('uAlpha'), discA); gl.uniformMatrix4fv(U('uM'), false, M0); gl.uniform1f(U('uUse'), 0); gl.bindTexture(gl.TEXTURE_2D, texs._none);
+      draws.forEach(d => { if (d.spin === 'disc') { gl.bindVertexArray(d.vao); gl.drawElements(gl.TRIANGLES, d.n, gl.UNSIGNED_INT, d.off); } }); gl.uniform1f(U('uAlpha'), 1); gl.depthMask(true); gl.disable(gl.BLEND); }
     gl.uniform1f(U('uGY'), terrainH(sim.p[0], sim.p[2]) + 0.06);
     if (sim.p[1] - terrainH(sim.p[0], sim.p[2]) < 150) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.uniform1f(U('uShadow'), 1); drawPlane(true); gl.uniform1f(U('uShadow'), 0); gl.depthMask(true); gl.disable(gl.BLEND); }
   }
@@ -509,7 +651,7 @@
   }
   function frame(ts) {
     raf = 0;
-    if (state.activeTab !== 'fsim' || !win || !win.isConnected) return;
+    if (state.activeTab !== 'fsim' || !win || !win.isConnected) { audioUpdate(false); return; }
     const dt = Math.min(0.05, last ? (ts - last) / 1000 : 0); last = ts;
     let u = { ail: 0, ele: 0, rud: 0 };
     if (plane && !plane.err) {
@@ -517,7 +659,7 @@
       if (!paused) { const n = Math.max(1, Math.ceil(dt / 0.004)); for (let i = 0; i < n; i++) step(dt / n, u); }
       therm.forEach(th => { th.life -= dt; th.x += Math.cos((cfg().windDir || 0) * Math.PI / 180) * cfg().wind * dt; if (th.life < 0) Object.assign(th, newTherm()); });
     }
-    draw(); showHud(u);
+    draw(); showHud(u); audioUpdate(!paused && !sim.crashed);
     if (thrBox) { const m = thrustMax() > 0; thrBox.style.display = m ? '' : 'none'; if (m) { const pc = Math.round(sim.thr * 100); thrBox.querySelector('.fsThr').style.height = pc + '%'; thrBox.querySelector('.fsThrT').textContent = pc + ' %'; } }
     if (ts - lsT > 2000) { lsT = ts; saveLs(); }
     raf = requestAnimationFrame(frame);
@@ -535,10 +677,12 @@
     const { grp, hint, numRow, boolRow, selectRow } = App;
     const c = cfg(), NR = { norender: true, enter: true }, RB = () => App.buildSidebar();
     const g0 = grp('Flugsimulator', true, 'fsim', { key: 'fsimMain', alwaysOpen: true });
-    selectRow(g0.body, 'Flugzeug', [['f3f', 'F3F-Hangrennsegler (Standard)'], ['own', 'Eigenes Flugzeug (Flugzeug gesamt)']], () => c.plane, v => { c.plane = v; saveLs(); RB(); if (gl) { loadAndUpload(); reset(); } });
+    selectRow(g0.body, 'Flugzeug', [['f3f', 'F3F-Hangrennsegler (Standard)'], ['su26', 'Kunstflug-Motormodell Sukhoi Su-26M'], ['own', 'Eigenes Flugzeug (Flugzeug gesamt)']], () => c.plane, v => { c.plane = v; saveLs(); RB(); if (gl) { loadAndUpload(); reset(); } });
     if (c.plane === 'own') hint(g0.body, 'Fliegt das Flugzeug aus „Flugzeug gesamt“ wie ein Modellflugzeug. Fläche und Streckung kommen aus der Haupttragfläche; Masse aus der Flächenbelastung oder fest. Fernsteuerung: Sender per USB anstecken (meldet sich als Joystick) und einen Knüppel bewegen.');
+    else if (c.plane === 'su26') hint(g0.body, 'Eingebaute Sukhoi Su-26M im Maßstab 1:3: 2,60 m Spannweite, rund 130 dm², symmetrisches Profil, Schub knapp das Doppelte des Gewichts — senkrecht steigen, Torque-Rolle, Messerflug. Bodenstart mit B, dann Gas geben. Fernsteuerung: Sender per USB anstecken (meldet sich als Joystick) und einen Knüppel bewegen.');
     else hint(g0.body, 'Eingebauter F3F-Hangrennsegler: 2,95 m Spannweite, rund 60 dm², V-Leitwerk, ohne Motor — ideal für den Hang. Fernsteuerung: Sender per USB anstecken (meldet sich als Joystick) und einen Knüppel bewegen.');
     if (c.plane === 'own') numRow(g0.body, 'Flächenbelastung (g/dm²)', () => c.load, v => { c.load = clamp(v, 5, 200); reloadPhys(); }, Object.assign({ step: 1, min: 5 }, NR));
+    else if (c.plane === 'su26') numRow(g0.body, 'Flächenbelastung (g/dm²)', () => c.loadSu26, v => { c.loadSu26 = clamp(v, 5, 200); reloadPhys(); }, Object.assign({ step: 1, min: 5 }, NR));
     else numRow(g0.body, 'Flächenbelastung (g/dm²)', () => c.loadF3f, v => { c.loadF3f = clamp(v, 5, 200); reloadPhys(); }, Object.assign({ step: 1, min: 5 }, NR));
     numRow(g0.body, 'Masse fest (g, 0 = aus Belastung)', () => c.mass, v => { c.mass = Math.max(0, v); reloadPhys(); }, Object.assign({ step: 10, min: 0 }, NR));
     numRow(g0.body, 'Schwerpunkt (% Bezugsflügeltiefe)', () => c.cgPct, v => { c.cgPct = clamp(v, 0, 60); }, Object.assign({ step: 1 }, NR));
@@ -547,6 +691,7 @@
     if (c.plane === 'own') numRow(g0.body, 'Nullwiderstand cW₀', () => c.cd0, v => { c.cd0 = clamp(v, 0.005, 0.3); }, Object.assign({ step: 0.005 }, NR));
     if (c.plane === 'own') boolRow(g0.body, 'Motor', () => c.motor, v => { c.motor = v; RB(); });
     if (c.plane === 'own' && c.motor) numRow(g0.body, 'Standschub (N, 0 = automatisch)', () => c.thrust, v => { c.thrust = Math.max(0, v); }, Object.assign({ step: 0.5, min: 0 }, NR));
+    if (c.plane !== 'f3f') { boolRow(g0.body, 'Motorgeräusch', () => c.sound, v => { c.sound = v; if (v) audioInit(); saveLs(); RB(); }); if (c.sound) numRow(g0.body, 'Lautstärke (%)', () => c.vol, v => { c.vol = clamp(v, 0, 100); saveLs(); }, Object.assign({ step: 5 }, NR)); }
     selectRow(g0.body, 'Kamera', [['pilot', 'Pilot am Boden'], ['chase', 'Verfolgerkamera']], () => c.cam, v => { c.cam = v; });
     side.appendChild(g0.g);
     const gL = grp('Landschaft', true, 'fsim', { key: 'fsimScene' });

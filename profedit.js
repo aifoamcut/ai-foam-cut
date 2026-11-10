@@ -170,7 +170,10 @@
       const frac = state.profEdit.teMM / profEditChord(id);
       pts = thickenTE(pts, frac);
     }
-    pts.name = base.name;
+    // Dicke geändert -> im Namen kenntlich machen (sonst heißt ein auf 11 % gebrachtes
+    // NACA 0012 weiter „NACA 0012" und wirkt wie verloren). Alte Angabe ersetzen.
+    { const bn = String(base.name || 'Profil').replace(/ \(\d+(?:\.\d+)? %\)$/, '');
+      pts.name = Math.abs(ts - 1) > 1e-6 ? bn + ' (' + (+state.profEdit.thickPct).toFixed(1) + ' %)' : base.name; }
     profEditSetProf(id, pts);
     render();                                  // Tragflächen-/Schnittbild mitziehen
     renderProfEdit();

@@ -164,7 +164,10 @@
     notes: { project: {}, settings: {} },
     cfg: {
       twistRef: 0.25, points: 160,
-      machineWidth: 900, blockZ: 20, blockZCenter: false, blockX: 0, blockY: 0, kerf: 1.2,
+      machineWidth: 900,
+      // Drehteller (5. Achse, drehachse.js): vorhanden?, Achsbuchstabe, Tischmitte X, Tisch-Oberkante Y
+      tblOn: false, tblAxis: 'B', tblX: 300, tblY: 40,
+      blockZ: 20, blockZCenter: false, blockX: 0, blockY: 0, kerf: 1.2,
       // Blockschnitte bei angehobenem Block (blockY > 0) nur bis knapp unter die
       // Blockunterkante statt auf Y=0: blockCutLow an, Überschnitt blockCutOver (mm).
       blockCutLow: false, blockCutOver: 1,

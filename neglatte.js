@@ -14,7 +14,7 @@
   const App = (window.App = window.App || {});
   const { T, state } = App;
 
-  const DEF = { on: false, shape: 'trap', minF: 10, minR: 10, clear: 5, kerf: 'speed' };
+  const DEF = { on: false, sides: 'both', shape: 'trap', minF: 10, minR: 10, clear: 5, kerf: 'speed' };
   function cfgL() {
     const c = state.cfg;
     if (!c.negLatte || typeof c.negLatte !== 'object') c.negLatte = Object.assign({}, DEF);
@@ -81,7 +81,8 @@
     const S = lines(); if (!S) return null;
     idx = Math.max(0, Math.min(idx, S.rows.length - 2));
     const r = S.rows[rib === 'root' ? idx : idx + 1];
-    return r ? { f: r.f, r: r.r, clear: Math.max(0, +cfgL().clear || 0) } : null;
+    const sd = cfgL().sides;   // both | front | rear — die andere Seite bleibt wie ohne Latte
+    return r ? { f: r.f, r: r.r, clear: Math.max(0, +cfgL().clear || 0), sf: sd !== 'rear', sr: sd !== 'front' } : null;
   }
   // Abbrand-Bezug der Schnittverlängerung (überschreibt negKerfMode).
   function kerfMode() { return on() ? (cfgL().kerf === 'ratio' ? 'ratio' : 'speed') : null; }
@@ -89,7 +90,7 @@
   /* Draufsicht-Skizze: Profil-Nasen/-Endleisten aller Rippen + die beiden Latten. */
   function sketch(body) {
     const S = lines(); if (!S) return;
-    const R = S.rows, W = 260, H = 150, pad = 8;
+    const R = S.rows, sd = cfgL().sides, W = 260, H = 150, pad = 8;
     const zs = R.map(r => r.z), xs = [];
     R.forEach(r => xs.push(r.xF - r.f, r.xT + r.r));
     const z0 = Math.min.apply(null, zs), z1 = Math.max.apply(null, zs);
@@ -103,13 +104,13 @@
     const d = document.createElement('div'); d.className = 'row';
     d.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;background:rgba(0,0,0,.15);border-radius:4px">`
       + ribL + pl(fr, 'stroke="#57a8ff" stroke-width="1.4"') + pl(te, 'stroke="#57a8ff" stroke-width="1.4"')
-      + pl(lF, 'stroke="#ffb454" stroke-width="1.6"') + pl(lR, 'stroke="#ffb454" stroke-width="1.6"') + '</svg>';
+      + (sd !== 'rear' ? pl(lF, 'stroke="#ffb454" stroke-width="1.6"') : '') + (sd !== 'front' ? pl(lR, 'stroke="#ffb454" stroke-width="1.6"') : '') + '</svg>';
     body.appendChild(d);
     const rd = v => (Math.round(v * 10) / 10).toFixed(1);
     const tb = document.createElement('div'); tb.className = 'hint';
     tb.style.cssText = 'font-family:monospace;white-space:pre;font-size:11px';
     tb.textContent = T('Rippe   vorne  hinten (mm, Profil → Latte)') + '\n'
-      + R.map((r, i) => String(i).padStart(5) + rd(r.f).padStart(8) + rd(r.r).padStart(8)).join('\n');
+      + R.map((r, i) => String(i).padStart(5) + (sd !== 'rear' ? rd(r.f) : '–').padStart(8) + (sd !== 'front' ? rd(r.r) : '–').padStart(8)).join('\n');
     body.appendChild(tb);
   }
 
@@ -125,6 +126,11 @@
     boolRow(g.body, 'Schalenränder an gerader Latte ausrichten', () => !!L.on,
       v => { L.on = v; buildSidebar(); render(); });
     if (L.on) {
+      selectRow(g.body, 'Gerade Linie an',
+        [['both', 'Vorne und hinten'], ['front', 'Nur vorne (Nase)'], ['rear', 'Nur hinten (Endleiste)']],
+        () => L.sides, v => { L.sides = v; buildSidebar(); render(); },
+        'Nur vorne / nur hinten: Nur diese Seite wird auf die gerade Latte gelegt. Die andere Seite bleibt wie ohne '
+        + 'Ausrichtung (Formüberstand proportional bzw. konstanter Schalenrand aus den übrigen Menüs).');
       selectRow(g.body, 'Form der Gesamtfläche',
         [['trap', 'Trapez (schräge Linie, wenn möglich)'], ['rect', 'Rechteck (parallel zur Spannweite)']],
         () => L.shape, v => { L.shape = v; buildSidebar(); render(); },
@@ -132,8 +138,8 @@
         + 'überall mindestens den Mindestüberstand einhält und dabei so wenig Werkstoff wie möglich verbraucht — '
         + 'ergibt bei gerader Pfeilung/Zuspitzung meist deutlich kleinere Überstände außen.');
       const nr = (lab, k, h) => numRow(g.body, lab, () => L[k], v => { L[k] = Math.max(0, v); buildSidebar(); render(); }, { min: 0, norender: true, hint: h });
-      nr('Mindestüberstand vorne / Nase (mm)', 'minF', 'Kleinster Abstand Profilnase → Latte an irgendeiner Rippe.');
-      nr('Mindestüberstand hinten / Endleiste (mm)', 'minR', 'Kleinster Abstand Endleiste → Latte an irgendeiner Rippe.');
+      if (L.sides !== 'rear') nr('Mindestüberstand vorne / Nase (mm)', 'minF', 'Kleinster Abstand Profilnase → Latte an irgendeiner Rippe.');
+      if (L.sides !== 'front') nr('Mindestüberstand hinten / Endleiste (mm)', 'minR', 'Kleinster Abstand Endleiste → Latte an irgendeiner Rippe.');
       nr('Schnittverlängerung über Latte hinaus (mm)', 'clear', 'So weit läuft die Schnittverlängerung (Trennschnitt der Schalen) über den Schalenrand hinaus.');
       selectRow(g.body, 'Abbrand der Schnittverlängerung',
         [['speed', 'Aus lokaler Bahngeschwindigkeit'], ['ratio', 'Wie Profilschnitt (Sehnenverhältnis)']],

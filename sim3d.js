@@ -249,6 +249,7 @@
       add(b.x0, b.y0); add(b.x1, b.y1);
       if (b.x0t != null) { add(b.x0t, b.y0t); add(b.x1t, b.y1t); }
     });
+    (scene && scene.extraBounds ? scene.extraBounds : []).forEach(b => { add(b.x0, b.y0); add(b.x1, b.y1); });   // z. B. Drehtisch (drehachse.js)
     if (x0 > x1) { x0 = -50; x1 = 250; y0 = -50; y1 = 100; }
     const bx = { x0: x0 - 40, x1: x1 + 40, y0: y0 - 40, y1: y1 + 40 };
     return {
@@ -696,7 +697,7 @@
   function hud(p, m, info) {
     const ax = S.scene.ax;
     const mm = v => v.toFixed(1);
-    const fmt = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+    const fmt = t => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60; return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); };   // hh:mm:ss
     const x = 10, y = H - 92;                 // unten links, stört die Legende nicht
     ctx.save();
     ctx.font = '11px Consolas,monospace'; ctx.textAlign = 'left';
@@ -780,6 +781,8 @@
 
     drawFloor();
     drawOrigin();
+    // Zusatzgeometrie des aufrufenden Moduls (Drehtisch + Werkstück, drehachse.js) mit derselben Projektion
+    if (S.scene.drawExtra) { try { S.scene.drawExtra({ ctx, scr, NEAR, seg, strokeSeg, W, H, move: m }, at, p); } catch (e) { console.error(e); } }
     if (S.show.block && blk) drawBlock(blk);
     if (S.show.block && blk) drawGuides(blk);
     if (S.show.surface && blk) drawSurface(at.i, at.u, blk);
@@ -829,6 +832,38 @@
     });
   }
 
+  // Dritter Viewport: Reiter „Drehachse" (drehachse.js). Gleiche Maschine wie G-Code/Schneiden,
+  // eigener Datensatz (RT); die Zeit setzt das Modul selbst (setRotTime), gezeichnet wird im tick.
+  let rotCanvas = null, rotCam = null, rotMounted = false;
+  const RT = { moves: [], cum: [], total: 0, scene: null, bx: null, floor: 0, center: { x: 0, y: 0, z: 0 }, radius: 400, ready: false, warn: null, t: 0, loaded: false };
+  const rotActive = () => { const v = document.getElementById('rotView'); return !!(v && v.classList.contains('active')); };
+  function mountRot(canvasId) {
+    const cv = document.getElementById(canvasId);
+    if (!cv || cv === rotCanvas) return;
+    rotCanvas = cv; rotCam = Object.assign({}, CAM0); RT.loaded = false;
+    setupInput(cv, rotCam);
+    if (window.ViewCube) ViewCube.attach({ reset: () => resetCam(rotCam), canvas: () => rotCanvas, get: () => rotCam, set: (y, p) => { rotCam.yaw = y; rotCam.pitch = p; }, redraw: () => drawRot(), rot: ViewCube.ROT_STD, k: [0.008, 0.006], active: rotActive });
+    rotMounted = true;
+  }
+  /* list = [{ from:{lx,ly,rx,ry}, to, rapid, feed, dur (s) }]; scene wie bei load() plus
+     drawExtra(api, at, p) und extraBounds. */
+  function loadRot(list, scene) {
+    RT.scene = scene;
+    RT.moves = (list || []).map((m, i) => ({ from: m.from, to: m.to, rapid: !!m.rapid, seg: 0, line: i, feed: m.rapid ? 0 : (m.feed || 0), dur: Math.max(0, m.dur || 0) }));
+    RT.cum = []; let t = 0; for (const m of RT.moves) { t += m.dur; RT.cum.push(t); }
+    RT.total = t; RT.ready = RT.moves.length > 0;
+    RT.warn = computeWarn(RT.moves, scene);
+    const fr = computeFrame(RT.moves, scene);
+    RT.bx = fr.bx; RT.floor = fr.floor; RT.center = fr.center; RT.radius = fr.radius;
+    if (!RT.loaded && rotCam) { Object.assign(rotCam, CAM0, { pivot: null }); RT.loaded = true; }
+  }
+  function setRotTime(t) { RT.t = Math.max(0, Math.min(RT.total, t)); }
+  function drawRot() {
+    if (!rotMounted || !rotCanvas || !rotActive()) return;
+    canvas = rotCanvas; cam = rotCam; fit();
+    withDataset(RT, () => drawSceneAt(moveAt(RT.t), { t: RT.t, tot: RT.total, tag: '⟳' }));
+  }
+
   // ---------- Animationsschleife ----------------------------------------
   function tick(now) {
     S.raf = requestAnimationFrame(tick);
@@ -857,6 +892,7 @@
     if (document.getElementById('gcodeView').classList.contains('active')) draw();
     const mv = document.getElementById('cutView');   // 3D-Monitor liegt jetzt im Reiter „Schneiden"
     if (monMounted && mv && mv.classList.contains('active') && (!monFrozen || MON.playing)) drawMonitor();
+    if (rotMounted && rotActive()) drawRot();   // Reiter „Drehachse“
   }
 
   // ---------- Bedienelemente --------------------------------------------
@@ -1148,5 +1184,5 @@
   }
   window.Sim3D = { init, load, loadMoves, resize: fit, play: () => setPlaying(true), setColors,
                    mountMonitor, loadMonitor, playMonitor, stopMonitor, monitorReady, setMonitorExec, setMonitorFrozen,
-                   setMonitorEnd, setMonitorPause, seekToLine, refreshWarn };
+                   setMonitorEnd, setMonitorPause, seekToLine, refreshWarn, mountRot, loadRot, setRotTime, drawRot };
 })();

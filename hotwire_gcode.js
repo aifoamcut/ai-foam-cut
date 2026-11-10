@@ -48,9 +48,19 @@
     // (flipY) liegt die Profil-Oberseite unten -> Reihenfolge nach Lage wählen:
     // zuerst die Hälfte (bis zur Nase), deren Punkte im Mittel höher liegen.
     let revPath = opt.profileDir === 'bottom';
+    // Bezug für Nase/Lage: die Wurzelrippe (RP), sonst der Turm mit der größeren
+    // X-Spanne. NIE blind den linken Turm — bei extrapolierten Turmbahnen (linke
+    // Hälfte, Pfeilung) läuft eine Turmbahn gespiegelt, ihr „vorderster" Punkt liegt
+    // dann an der Endleiste (Fix 2026-11-10: falsche Reihenfolge linke Hälfte).
+    const noseRefOf = (Lr, Rr, RPr) => {
+      if (RPr && RPr.length === Lr.length) return RPr;
+      const span = a => { let lo = Infinity, hi = -Infinity; a.forEach(q => { lo = Math.min(lo, q.x); hi = Math.max(hi, q.x); }); return hi - lo; };
+      return span(Rr) > span(Lr) ? Rr : Lr;
+    };
     if (opt.noseSpar && opt.noseSpar.length && L.length > 2) {
-      let iL = 0; for (let k = 1; k < L.length; k++) if (L[k].x < L[iL].x) iL = k;
-      const mean = (a, b) => { let sy = 0, c = 0; for (let k = a; k <= b; k++) { sy += L[k].y; c++; } return c ? sy / c : 0; };
+      const Q = noseRefOf(L, R, RP);
+      let iL = 0; for (let k = 1; k < Q.length; k++) if (Q[k].x < Q[iL].x) iL = k;
+      const mean = (a, b) => { let sy = 0, c = 0; for (let k = a; k <= b; k++) { sy += Q[k].y; c++; } return c ? sy / c : 0; };
       revPath = mean(0, iL) < mean(iL, L.length - 1);
     }
     if (!front && revPath && _stackN0 === 1 && L.length > 2) {
@@ -121,7 +131,7 @@
     // Kontur in Oberseite (1..iLE) und Unterseite (iLE+1..last) — für den
     // nasenoptimierten Blockschnitt („wrap").
     let iLE = 0, xLE = Infinity;
-    for (let i = 0; i <= last; i++) { if (L[i].x < xLE) { xLE = L[i].x; iLE = i; } }
+    { const Q = noseRefOf(L, R, RP); for (let i = 0; i <= last; i++) { if (Q[i].x < xLE) { xLE = Q[i].x; iLE = i; } } }
 
     // Der Draht startet IMMER am Maschinennullpunkt (hinten/unten am Block; bei
     // „von vorne" vorne/unten vor der Nase).
@@ -385,7 +395,7 @@
       if (heat != null) em('M5 ; Draht AUS für die Pause');
       em('M0 ; ' + T('AUTO-PAUSE: Oberseite fertig. Im Reiter „Schneiden" auf „Fortsetzen" drücken (Holmschnitt)'));
       if (heat != null) em('M3 S' + s + ' ; Draht EIN (nach Fortsetzen)');
-      em(`G1 ${ax.x}${fx(L[iLE].x)} ${ax.y}${f(safeY)} ${ax.u}${fx(R[iLE].x)} ${ax.v}${f(safeY)} F${maxMove.toFixed(0)} ; hoch über den Block (Oberseite fertig)`);
+      em(`G1 ${ax.x}${fx(L[iLE].x)} ${ax.y}${f(safeY)} ${ax.u}${fx(R[iLE].x)} ${ax.v}${f(safeY)} F${capF(feed).toFixed(0)} ; hoch über den Block (Oberseite fertig, Schnittvorschub — Draht kann noch im Schaumrest stehen)`);
       (opt.noseSpar || []).forEach(l => em(l));   // direkt zur Holmposition, Tasche(n), zurück auf Sicherheitshöhe
       em(`G1 ${ax.x}${fx(L[iLE].x)} ${ax.y}${f(safeY)} ${ax.u}${fx(R[iLE].x)} ${ax.v}${f(safeY)} F${maxMove.toFixed(0)} ; direkt nach vorne zur Nase (kein Null-Umweg)`);
       if (heat != null) em('M5 ; Draht AUS für die Pause');

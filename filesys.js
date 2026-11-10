@@ -1421,7 +1421,7 @@
   const SETTINGS_ENDPOINT = '/__settings__';
   const MACHINE_KEYS = ['checklistOn', 'checklist', 'machineWidth', 'axX', 'axY', 'axU', 'axV', 'precision', 'header', 'footer', 'feed',
     'maxTravelH', 'maxTravelV', 'maxFeed', 'negTravelH', 'negTravelV', 'warnNeg', 'warnTravel', 'warnFeed', 'axMig', 'firmware', 'feedMode', 'feedMig',
-    'relayOut', 'relayPin', 'relayP', 'relayOn', 'relayOff', 'relayMode'];
+    'relayOut', 'relayPin', 'relayP', 'relayOn', 'relayOff', 'relayMode', 'tblOn', 'tblAxis', 'tblX', 'tblY'];
   let settingsReady = false;   // erst nach dem Laden automatisch speichern
   function collectSettings() {
     const machine = {}; MACHINE_KEYS.forEach(k => machine[k] = state.cfg[k]);
@@ -1587,6 +1587,7 @@
   function loadMachineName() {
     if (typeof fetch !== 'function') return;
     fetch('/__machine__').then(r => r.ok ? r.json() : null).then(m => {
+      if (m && m.name) App.machineName = m.name;
       const el = document.getElementById('machName');
       if (!el || !m || !m.name) return;
       el.textContent = T('Maschine') + ': ' + m.name;
@@ -1766,6 +1767,7 @@
     if (window.Ausschnitt && Ausschnitt.reset) { try { Ausschnitt.reset(); } catch (e) {} }
     if (window.StlBody && StlBody.reset) { try { StlBody.reset(); } catch (e) {} }   // eigenes STL-Rumpfmodell verwerfen
     if (window.Decals && Decals.reset) { try { Decals.reset(); } catch (e) {} }
+    if (window.Bauanleitung && Bauanleitung.reset) { try { Bauanleitung.reset(); } catch (e) {} }   // eigene Schritte/Bilder der Bauanleitung
     // Reiter „Auslegung": Altprojekte ohne cfg.ausl starten mit den Vorgaben.
     if (window.Auslegung && Auslegung.reset) { try { Auslegung.reset(); } catch (e) {} }
     // Reiter „Profiloptimierung": Ausgangsprofil, Ziele und Ergebnisse zurücksetzen.
@@ -1792,8 +1794,8 @@
   function setProjFileHandle(h) { projFileHandle = (h && h.createWritable) ? h : null; projNativePath = null; }
   // Rumpf: Rückgängig reicht nach dem Speichern nur bis zu diesem Stand
   const projSaved = () => { if (window.RumpfPro && RumpfPro.histMarkSaved) { try { RumpfPro.histMarkSaved(); } catch (e) {} } };
-  async function saveProject(opts) {
-    const quick = !!(opts && opts.quick);
+  // Projektdaten als Objekt (Dateiformat v5) — auch für Projektbibliothek/Bauanleitung.
+  function projectData() {
     const enc = p => ({ name: p.name, pts: p.map(q => [+q.x.toFixed(6), +q.y.toFixed(6)]) });
     // DXF-Formen serialisieren: nur JSON-taugliche Werte (Image-Objekte/Drag-
     // Zustände auslassen; das Hintergrundbild bleibt als dataURL in bg.url erhalten).
@@ -1845,6 +1847,11 @@
       model3d: (window.Model3D && Model3D.serialize) ? Model3D.serialize() : null,
       meshedit: (window.MeshEdit && MeshEdit.serialize) ? MeshEdit.serialize() : null
     });
+    return data;
+  }
+  async function saveProject(opts) {
+    const quick = !!(opts && opts.quick);
+    const data = projectData();
     const text = JSON.stringify(data, null, 1);
     if (quick && projFileHandle && FS_SUPPORTED && !App.demoSaveBlocked('svProject')) {
       try {
@@ -2288,7 +2295,7 @@
   Object.assign(App, { loadSettingsFromExeFolder, loadSettingsLocal, loadVia, loadXflr, mkMenuHead, mkMenuItem, newProject, openMenuAt });
   Object.assign(App, { openPc2Dialog, openRecent, openSettings, pc2DoImport, pc2Regen, pc2SortedStations, pickDir, pickTextFile });
   Object.assign(App, { processDat, processPc2, profFileBase, projFileBase, recordRecent, renderPc2 });
-  Object.assign(App, { repaintAll, resetColors, saveProject, saveRecentMeta, saveSettings, saveSettingsFile, saveSettingsOnExit, saveToDir });
+  Object.assign(App, { projectData, repaintAll, resetColors, saveProject, saveRecentMeta, saveSettings, saveSettingsFile, saveSettingsOnExit, saveToDir });
   Object.assign(App, { setProjectName, toggleLoadMenu, toggleSaveMenu, checklistGet, checklistSet, buildSettingsChecklist });
   Object.defineProperty(App, 'fileLoadDone', { get: () => fileLoadDone, set: v => { fileLoadDone = v; }, enumerable: true, configurable: true });
   Object.defineProperty(App, 'loadMenuEl', { get: () => loadMenuEl, set: v => { loadMenuEl = v; }, enumerable: true, configurable: true });

@@ -89,14 +89,56 @@
     const hinge = st.unit === 'hinge', pj = !!st.perJoint;
     const valAt = (z, v) => { if (hinge) return +v || 0; const f = frame(G, z); return f.le + (st.unit === 'mm' ? (+v || 0) : f.c * (+v || 0) / 100); };
     const v0 = hinge ? st.off : st.pos0, v1 = hinge ? (pj && st.off1 != null ? st.off1 : st.off) : st.pos1;
+    if (hinge) {   // Abstand zur Scharnierlinie: gleich / innen→außen / je Segmentstoß / je Segmentgruppe
+      const lay = hingeLay(G, st);
+      let P;
+      if (lay === 'grp') { P = []; hGroups(G, st, a, b).forEach(g => { P.push([g.z0, +g.gr.p0 || 0], [g.z1, +g.gr.p1 || 0]); }); }
+      else {
+        P = [[a, +st.off || 0]];
+        if (lay === 'joint') jointsIn(G, a, b).forEach(q => { const v = st.jpos && st.jpos[q.k]; if (v != null) P.push([q.z, +v]); });
+        P.push([b, lay === 'same' || st.off1 == null ? +st.off || 0 : +st.off1 || 0]);
+      }
+      return z => { const f = frame(G, z); return f.le + f.c * (1 - f.hp / 100) - lerpPts(P, z); };   // Abstand > 0 = vor dem Scharnier
+    }
     const P = [[a, valAt(a, v0)]];
     if (pj) jointsIn(G, a, b).forEach(q => { const v = st.jpos && st.jpos[q.k]; if (v != null) P.push([q.z, valAt(q.z, v)]); });
     P.push([b, valAt(b, v1)]);
     if (hinge) return z => { const f = frame(G, z); return f.le + f.c * (1 - f.hp / 100) - lerpPts(P, z); };   // Abstand > 0 = vor dem Scharnier
     return z => lerpPts(P, z);
   }
+  // Rudersteg an der Scharnierlinie: wie wird der Abstand angegeben (st.hLay)
+  function hingeLay(G, st) {
+    const l = st.hLay || (st.perJoint ? 'joint' : 'same');
+    return G && G.segs.length < 2 && (l === 'joint' || l === 'grp') ? 'line' : l;
+  }
+  // Segmente im Bereich [a, b] des Stegs
+  function segRange(G, a, b) {
+    let kA = G.segs.findIndex(q => q.z1 > a + 1e-6); if (kA < 0) kA = G.segs.length - 1;
+    let kB = kA; G.segs.forEach((q, k) => { if (q.z0 < b - 1e-6) kB = Math.max(kB, k); });
+    return [kA, kB];
+  }
+  // Gruppen st.hGrp = [{ to: letzter Segmentindex, p0: Abstand innen, p1: außen }], lückenlos über die Segmente des Stegs
+  function hGroups(G, st, a, b) {
+    const [kA, kB] = segRange(G, a, b), n = kB - kA + 1;
+    if (!Array.isArray(st.hGrp) || !st.hGrp.length) st.hGrp = [{ to: kB, p0: +st.off || 0, p1: st.off1 != null ? +st.off1 : +st.off || 0 }];
+    if (st.hGrp.length > n) st.hGrp.length = n;
+    let prev = kA - 1;
+    st.hGrp.forEach((g, i) => { g.to = i === st.hGrp.length - 1 ? kB : clamp(Math.round(+g.to || 0), prev + 1, kB - (st.hGrp.length - 1 - i)); prev = g.to; });
+    prev = kA - 1;
+    return st.hGrp.map(g => { const r = { gr: g, a: prev + 1, b: g.to, z0: Math.max(a, G.segs[prev + 1].z0), z1: Math.min(b, G.segs[g.to].z1) }; prev = g.to; return r; });
+  }
+  function setHGroupCount(G, st, a, b, n) {
+    const [kA, kB] = segRange(G, a, b), N = kB - kA + 1, f = xFn(G, st, a, b);
+    n = clamp(Math.round(n) || 1, 1, N);
+    if (n === hGroups(G, st, a, b).length) return;
+    const at = z => { const fr = frame(G, z); return Math.round((fr.le + fr.c * (1 - fr.hp / 100) - f(z)) * 100) / 100; };
+    const G2 = [];
+    for (let i = 0; i < n; i++) { const p = kA + Math.round(i * N / n), q = kA + Math.round((i + 1) * N / n) - 1; G2.push({ to: q, p0: at(Math.max(a, G.segs[p].z0) + 1e-6), p1: at(Math.min(b, G.segs[q].z1) - 1e-6) }); }
+    st.hGrp = G2;
+  }
   // Fehlende Stoß-Lagen mit dem bisherigen Verlauf vorbelegen (beim Einschalten, nach Ändern von Von/Bis)
   function fillJoints(G, st) {
+    segSync(G, st);
     const a = clamp(Math.min(+st.from || 0, +st.to || 0), 0, G.L), b = clamp(Math.max(+st.from || 0, +st.to || 0), 0, G.L);
     if (!st.jpos) st.jpos = {};
     if (st.unit === 'hinge' && st.off1 == null) st.off1 = +st.off || 0;
@@ -112,7 +154,14 @@
     const g = distGroup(c), i = g.indexOf(st), f = g.length > 1 ? i / (g.length - 1) : 0.5, B = capAt(G, c, 'capW', z), w = webOf(st, 'holm');
     return capCenter(G, c, z) - B / 2 + w / 2 + f * (B - w);
   }
-  const rangeOf = (G, st) => [clamp(Math.min(+st.from || 0, +st.to || 0), 0, G.L), clamp(Math.max(+st.from || 0, +st.to || 0), 0, G.L)];
+  // Bereich an Segmente gebunden (st.segA/segB = Segmentindex, null = frei in mm): Von/Bis folgen den Segmentgrenzen
+  function segSync(G, st) {
+    const n = G.segs.length, a = st.segA, b = st.segB;
+    if (a != null && a >= 0 && a < n) st.from = Math.round(G.segs[a].z0 * 100) / 100;
+    if (b != null && b >= 0 && b < n) st.to = Math.round(G.segs[b].z1 * 100) / 100;
+  }
+  const rangeOf = (G, st) => { segSync(G, st); return [clamp(Math.min(+st.from || 0, +st.to || 0), 0, G.L), clamp(Math.max(+st.from || 0, +st.to || 0), 0, G.L)]; };
+
   function distFits(G, c, z) {
     const act = distGroup(c).filter(q => { const r = rangeOf(G, q); return z >= r[0] && z <= r[1]; });
     for (let i = 1; i < act.length; i++) {
@@ -132,7 +181,7 @@
   function autoShift(G, c, st, a, b, xAt) {
     if (!c.lipOn || !c.lipAuto || c.lipFix === 'wing' || !(b > a)) return null;
     let M = autoCache.get(App.wing); if (!M) autoCache.set(App.wing, M = new Map());
-    const key = JSON.stringify([st, a, b, c.shell, c.layOn, c.layA, c.layS, c.layI, c.ruderOn, c.lipSide, c.lipLen, c.lipOver, c.lipT, c.lipGap, c.lipR, c.lipSlot, c.lipAuto, c.lipMax, c.lipMargin, G.segs.map(q => q.sg.hingeSide + q.sg.hingePct + '/' + q.sg.hingePctTip)]);
+    const key = JSON.stringify([st, a, b, c.shell, c.layOn, c.layA, c.layS, c.layI, c.ruderOn, c.lipSide, c.lipLen, c.lipOver, c.lipT, c.lipGap, c.lipR, c.lipR0, c.lipR1, c.lipRGrp, c.ruder.map(q => q.hGrp), c.lipSlot, c.lipAuto, c.lipMax, c.lipMargin, G.segs.map(q => q.sg.hingeSide + q.sg.hingePct + '/' + q.sg.hingePctTip)]);
     if (M.has(key)) return M.get(key);
     const mx = Math.max(0, +c.lipMax || 0), margin = Math.max(0, +c.lipMargin || 0), web = webOf(st, 'ruder'), angs = [0];
     for (let d = 5; d < mx; d += 5) angs.push(d, -d);
@@ -166,7 +215,9 @@
     const a = stkTrim(G, c, st, kind, a0, b, xAt), joints = G.segs.slice(0, -1).map(q => q.z1).filter(z => z > a + 1e-6 && z < b - 1e-6);
     const zs = []; const N = Math.max(2, Math.ceil((b - a) / 2));
     for (let i = 0; i <= N; i++) zs.push(a + (b - a) * i / N);
-    zs.push(...joints); zs.sort((p, q) => p - q);
+    // Rudersteg je Segmentgruppe: an jeder Gruppengrenze darf der Abstand springen → zweite Stützstelle knapp dahinter
+    const gB = !dist && st.unit === 'hinge' && hingeLay(G, st) === 'grp' ? hGroups(G, st, a0, b0).slice(1).map((g, i) => ({ z: g.z0 + 1e-6, n: i + 2 })).filter(g => g.z > a && g.z < b) : [];
+    zs.push(...joints, ...gB.map(g => g.z)); zs.sort((p, q) => p - q);
     const path = []; let s = 0;
     zs.forEach((z, i) => { const x = xAt(z); if (i) s += Math.hypot(z - zs[i - 1], x - path[i - 1].x); path.push({ z, x, s }); });
     const len = s;
@@ -184,13 +235,14 @@
       const note = T('Segmentstoß') + ' ' + (k + 1) + '|' + (k + 2);
       if (hit >= 0) { marks[hit].z = z; marks[hit].s = q; marks[hit].note = note; } else marks.push({ s: q, z, note });
     });
+    gB.forEach(g => marks.push({ s: sOf(g.z), z: g.z, e: 1, note: T('Gruppe') + ' ' + g.n + ' ' + T('innen') }));
     marks.push({ s: len, z: b, note: 'Ende' });
-    marks.sort((p, q) => p.s - q.s);
+    marks.sort((p, q) => p.s - q.s || (p.e || 0) - (q.e || 0));
     const rows = marks.map(m => Object.assign(at(m.z, m.s), { note: m.note }));
     // Umriss fein abgetastet; Lücken (außerhalb des Profils, Höhe ≤ 0) trennen die Teilstücke
     const M = Math.max(2, Math.ceil(len / 5)), sm = [];
     for (let i = 0; i <= M; i++) sm.push(len * i / M);
-    joints.forEach(z => sm.push(sOf(z))); rows.forEach(r => sm.push(r.s)); sm.sort((p, q) => p - q);
+    joints.forEach(z => sm.push(sOf(z))); gB.forEach(g => sm.push(sOf(g.z))); rows.forEach(r => sm.push(r.s)); sm.sort((p, q) => p - q);
     const runs = []; let cur = null;
     sm.forEach(q => { const r = at(zOf(q), q); if (r.h != null && r.h > 0) { if (!cur) runs.push(cur = []); cur.push(r); } else cur = null; });
     const polys = runs.filter(R => R.length >= 2 && len > 1e-6).map(R => R.map(r => [r.s, r.top]).concat(R.slice().reverse().map(r => [r.s, r.bot])));
@@ -204,6 +256,25 @@
   // Schale: eine Dicke oder Aufbau aus Außenlage, Stützstoff, Innenlage (je Seite)
   const layA = c => Math.max(0, +c.layA || 0), layS = c => Math.max(0, +c.layS || 0), layI = c => Math.max(0, +c.layI || 0);
   const shellOf = c => (c.layOn ? layA(c) + layS(c) + layI(c) : Math.max(0, +c.shell || 0));
+  // Endleiste: Abstand von der Endleiste, ab dem die Profilhöhe (senkrecht) kleiner als H wird. Abgetastet von der
+  // Endleiste nach vorne (0,25 mm, höchstens 60 % der Tiefe), dann halbiert. null = wird nirgends erreicht.
+  function teDist(G, z, H) {
+    const f = frame(G, z), te = f.le + f.c, h = d => { const sc = section(G, te - d, z); return sc ? sc.top - sc.bot : 0; };
+    if (H <= 0) return 0;
+    let prev = 0;
+    for (let d = 0.25; d <= f.c * 0.6; d += 0.25) {
+      if (h(d) >= H) { let a = prev, b = d; for (let k = 0; k < 30; k++) { const m = (a + b) / 2; if (h(m) >= H) b = m; else a = m; } return (a + b) / 2; }
+      prev = d;
+    }
+    return null;
+  }
+  // Stützstoff an der Endleiste (nur bei Schalenaufbau): wo sich die Schalenhälften berühren (Schleifen beginnt),
+  // wo der Stützstoff oben/unten aufeinandertrifft und ab wo nur noch die Außenlagen Platz haben (Stützstoff ganz weg)
+  function teLayers(G, c, z) {
+    if (!c.layOn || layS(c) <= 0) return null;
+    const a = layA(c), sS = layS(c), i = layI(c);
+    return { start: teDist(G, z, 2 * (a + sS + i)), meet: teDist(G, z, 2 * (a + sS)), gone: teDist(G, z, 2 * a) };
+  }
   const capOnOuter = c => !!c.layOn && c.capOn === 'outer';
   // Abstand der Gurt-Außenfläche von der Profilkontur
   const capFace = c => (capOnOuter(c) ? layA(c) : shellOf(c) - capEmbed(c));
@@ -220,9 +291,37 @@
     const val = (q, v) => { const f = frame(G, q); return f.le + (c.capMode === 'mm' ? (+v || 0) : f.c * (+v || 0) / 100); };
     const P = [[0, val(0, c.capP0)]];
     if (c.capOrtho) return P[0][1];   // von oben gesehen rechtwinklig zur Wurzelrippe: gleiche Rücklage über die ganze Spannweite
-    if (c.capPerJoint) jointsIn(G, 0, G.L).forEach(q => { const v = c.capJ && c.capJ[q.k]; if (v != null) P.push([q.z, val(q.z, v)]); });
+    const lay = capLay(c, G);
+    if (lay === 'grp') {   // Segmentgruppen: je Gruppe innen → außen gerade im Grundriss
+      const g = capGroups(G, c).find(q => z <= q.z1 + 1e-9) || capGroups(G, c).slice(-1)[0];
+      return lerpPts([[g.z0, val(g.z0, g.gr.p0)], [g.z1, val(g.z1, g.gr.p1)]], z);
+    }
+    if (lay === 'joint') jointsIn(G, 0, G.L).forEach(q => { const v = c.capJ && c.capJ[q.k]; if (v != null) P.push([q.z, val(q.z, v)]); });
     P.push([G.L, val(G.L, c.capP1)]);
     return lerpPts(P, z);
+  }
+  // Gurtlage: 'line' = Wurzel → außen gerade, 'joint' = je Segmentstoß, 'grp' = Segmentgruppen (je Gruppe innen/außen)
+  function capLay(c, G) {
+    const l = c.capLay || (c.capPerJoint ? 'joint' : 'line');
+    return G && G.segs.length < 2 && l !== 'line' ? 'line' : l;
+  }
+  // Gruppen c.capGrp = [{ to: letzter Segmentindex, p0: innen, p1: außen }], lückenlos ab Segment 0, letzte bis außen
+  function capGroups(G, c) {
+    const n = G.segs.length;
+    if (!Array.isArray(c.capGrp) || !c.capGrp.length) c.capGrp = [{ to: n - 1, p0: +c.capP0 || 0, p1: +c.capP1 || 0 }];
+    let prev = -1;
+    c.capGrp.forEach((g, i) => { g.to = i === c.capGrp.length - 1 ? n - 1 : clamp(Math.round(+g.to || 0), prev + 1, n - 1 - (c.capGrp.length - 1 - i)); prev = g.to; });
+    prev = -1;
+    return c.capGrp.map(g => { const r = { gr: g, a: prev + 1, b: g.to, z0: G.segs[prev + 1].z0, z1: G.segs[g.to].z1 }; prev = g.to; return r; });
+  }
+  function setCapGroupCount(G, c, n) {
+    const N = G.segs.length; n = clamp(Math.round(n) || 1, 1, N);
+    const old = capGroups(G, c), at = z => { const f = frame(G, z), x = capCenter(G, c, z) - f.le; return Math.round((c.capMode === 'mm' ? x : x / f.c * 100) * 100) / 100; };
+    if (n === old.length) return;
+    // neue Gruppen gleichmäßig über die Segmente, Werte aus der bisherigen Lage
+    const G2 = [];
+    for (let i = 0; i < n; i++) { const a = Math.round(i * N / n), b = Math.round((i + 1) * N / n) - 1; G2.push({ to: b, p0: at(G.segs[a].z0 + 1e-6), p1: at(G.segs[b].z1 - 1e-6) }); }
+    c.capGrp = G2;
   }
   // Mitte der Steckung: folgt dem Gurt oder steht für sich rechtwinklig zur Wurzelrippe
   const stkCenter = (G, c, z) => capCenter(G, c, c.stkOrtho ? 0 : z);
@@ -235,33 +334,45 @@
   // Steckung: gerades Rohr zwischen den Gurten, ab Wurzel über die Einbindetiefe, entlang der Gurtmitte.
   // Maßgebend ist die engste Stelle über Länge und Breite (Gurt-Innenflächen, bei Rund auf der sicheren Seite).
   const stkCache = new WeakMap();
-  function stkData(G, c) {
-    if (!c.stkOn) return null;
+  function stkAll(G, c) {
     let M = stkCache.get(App.wing); if (!M) stkCache.set(App.wing, M = new Map());
     const key = JSON.stringify(Object.keys(c).filter(k => k !== 'holm' && k !== 'ruder' && k !== 'step' && !/^lip/.test(k)).sort().map(k => [k, c[k]]));
-    if (!M.has(key)) { if (M.size > 50) M.clear(); M.set(key, stkCalc(G, c)); }
+    if (!M.has(key)) {
+      if (M.size > 50) M.clear();
+      const out = [];
+      if (c.stkOn) out.push(stkCalc(G, c, { z0: 0, z1: clamp(+c.stkLen || 0, 0, G.L), wall: c.stkWall, round: c.stkForm === 'round', w: c.stkW, fix: c.stkFix, d: c.stkD, v: c.stkV, cen: z => stkCenter(G, c, z) }));
+      // Teilungen in Spannweitenrichtung: eigene Steckung je Trennstelle, x mm nach innen und x mm nach außen
+      (c.stkSplit || []).forEach((t, i) => {
+        const zt = clamp(+t.z || 0, 0, G.L), z0 = clamp(zt - Math.max(0, +t.li || 0), 0, G.L), z1 = clamp(zt + Math.max(0, +t.la || 0), 0, G.L);
+        const S = stkCalc(G, c, { z0, z1, wall: t.wall, round: t.form === 'round', w: t.w, fix: t.fix, d: t.d, v: 0, cen: z => capCenter(G, c, z) });
+        S.split = i; S.zt = zt; out.push(S);
+      });
+      M.set(key, out);
+    }
     return M.get(key);
   }
+  // Hauptsteckung an der Wurzel (null, wenn keine)
+  function stkData(G, c) { const A = stkAll(G, c); return A.length && A[0].split == null ? A[0] : null; }
   function stkTrim(G, c, st, kind, a, b, xAt) {
     const S = stkData(G, c); if (!S || S.cy == null || !(S.oW > 0)) return a;
-    const e = Math.min(b, S.len), web = webOf(st, kind), hit = z => Math.abs(xAt(z) - stkCenter(G, c, z)) < S.oW / 2 + web / 2;
+    const e = Math.min(b, S.len), web = webOf(st, kind), hit = z => Math.abs(xAt(z) - S.cx(z)) < S.oW / 2 + web / 2;
     let last = null;
     for (let z = a; z < e; z += 1) if (hit(z)) last = z;
     if (e >= a && hit(e)) last = e;
     return last == null ? a : Math.min(b, Math.min(last + 1, S.len));
   }
-  function stkCalc(G, c) {
-    const len = clamp(+c.stkLen || 0, 0, G.L), wall = Math.max(0, +c.stkWall || 0), round = c.stkForm === 'round', zs = [];
+  function stkCalc(G, c, P) {
+    const z0 = P.z0, len = P.z1, wall = Math.max(0, +P.wall || 0), round = !!P.round, zs = [], cen = P.cen;
     // V-Form nur bei Rund: positiver Winkel = Hülse fällt nach außen gegen die Profilebene (Höhe y = cy + z·tan, tan < 0)
-    const vDeg = round ? clamp(+c.stkV || 0, -45, 45) : 0, tan = -Math.tan(vDeg * Math.PI / 180), cos = Math.cos(vDeg * Math.PI / 180);
-    const N = Math.max(1, Math.min(40, Math.ceil(len / 10)));
-    for (let i = 0; i <= N; i++) zs.push(len * i / N);
-    jointsIn(G, 0, len).forEach(q => zs.push(q.z));
+    const vDeg = round ? clamp(+P.v || 0, -45, 45) : 0, tan = -Math.tan(vDeg * Math.PI / 180), cos = Math.cos(vDeg * Math.PI / 180);
+    const N = Math.max(1, Math.min(40, Math.ceil((len - z0) / 10)));
+    for (let i = 0; i <= N; i++) zs.push(z0 + (len - z0) * i / N);
+    jointsIn(G, z0, len).forEach(q => zs.push(q.z));
     const capMin = Math.min(...zs.map(z => capAt(G, c, 'capW', z)));
     const box = w => {
       let top = Infinity, bot = -Infinity;
       for (const z of zs) {
-        const xc = stkCenter(G, c, z), ins = insetOf(G, c, 'holm', z);
+        const xc = cen(z), ins = insetOf(G, c, 'holm', z);
         for (let i = 0; i <= 8; i++) { const s = section(G, xc - w / 2 + w * i / 8, z); if (!s) return null; top = Math.min(top, s.top - ins - z * tan); bot = Math.max(bot, s.bot + ins - z * tan); }
       }
       return { top, bot, H: (top - bot) * cos };
@@ -272,29 +383,37 @@
       let lo = 0, hi = capMin;
       for (let i = 0; i < 24; i++) { const d = (lo + hi) / 2, q = box(d); if (q && q.H >= d) lo = d; else hi = d; }
       pOW = pOH = lo;
-    } else { pOW = Math.max(0, +c.stkW || 0) + 2 * wall; const q = box(pOW); pOH = q ? q.H : 0; }
+    } else { pOW = Math.max(0, +P.w || 0) + 2 * wall; const q = box(pOW); pOH = q ? q.H : 0; }
     const pH = Math.max(0, pOH - 2 * wall), pW = Math.max(0, pOW - 2 * wall);
     // Festes Maß: Hülse ergibt sich daraus, die Prüfung meldet, wenn es nicht passt
-    const fix = !!c.stkFix && +c.stkD > 0, D = fix ? +c.stkD : 0;
+    const fix = !!P.fix && +P.d > 0, D = fix ? +P.d : 0;
     const oW = fix && round ? D + 2 * wall : pOW, oH = fix ? D + 2 * wall : pOH, b = box(oW), warn = [];
-    if (!b) return { round, wall, len, fix, vDeg, tan: 0, pH, pW, inW: 0, inH: 0, oW, oH: 0, warn: [T('Die Hülse ragt aus dem Profil.')] };
+    if (!b) return { z0, cx: cen, round, wall, len, fix, vDeg, tan: 0, pH, pW, inW: 0, inH: 0, oW, oH: 0, warn: [T('Die Hülse ragt aus dem Profil.')] };
     if (fix && oH > b.H + 1e-6) warn.push(T('Passt nicht: Hülse außen') + ' ' + f1(oH) + ' mm, ' + T('Platz zwischen den Gurten') + ' ' + f1(b.H) + ' mm');
     if (oW > capMin + 1e-6) warn.push(T('Die Hülse ist breiter als der Gurt an der schmalsten Stelle:') + ' ' + f1(capMin) + ' mm');
     const inH = oH - 2 * wall, inW = oW - 2 * wall;
     if (inH <= 0 || inW <= 0) warn.push(T('Zwischen den Gurten bleibt kein Platz für die Steckung.'));
-    return { round, wall, len, fix, vDeg, tan, pH, pW, oW, oH, inW: Math.max(0, inW), inH: Math.max(0, inH), cy: (b.top + b.bot) / 2, warn };
+    return { z0, cx: cen, round, wall, len, fix, vDeg, tan, pH, pW, oW, oH, inW: Math.max(0, inW), inH: Math.max(0, inH), cy: (b.top + b.bot) / 2, warn };
   }
   // Abgerundet: die Steckung muss hineinpassen
   const fl1 = v => (Math.floor(v * 10 + 1e-6) / 10).toFixed(1);
   function stkResult() {
     if (!stkBox) return;
-    const G = geo(), S = G ? stkData(G, cfg()) : null; stkBox.innerHTML = ''; if (!S) return;
+    const G = geo(), c = cfg(); stkBox.innerHTML = ''; if (!G) return;
+    stkAll(G, c).forEach(S => {
     const line = (t, col) => { const d = document.createElement('div'); d.textContent = t; d.style.cssText = 'font-size:12px;margin-top:3px' + (col ? ';color:' + col : ''); stkBox.appendChild(d); };
+    if (S.split != null) line(T('Teilung') + ' ' + (S.split + 1) + ' (' + f1(S.zt) + ' mm, ' + T('Steckung von') + ' ' + f1(S.z0) + ' ' + T('bis') + ' ' + f1(S.len) + ' mm):', '#fff06a');
+    else if ((c.stkSplit || []).length) line(T('Hauptsteckung') + ':', '#fff06a');
     if (S.round) line(T('Steckung möglich: Ø') + ' ' + fl1(S.pH) + ' mm', '#7ee0a0');
     else line(T('Steckung möglich: Dicke') + ' ' + fl1(S.pH) + ' mm × ' + T('Breite') + ' ' + fl1(S.pW) + ' mm', '#7ee0a0');
     if (S.fix) line(T('Eingetragen:') + ' ' + (S.round ? 'Ø ' + f1(S.inH) : f1(S.inH) + ' × ' + f1(S.inW)) + ' mm');
     line(S.round ? T('Hülse außen: Ø') + ' ' + f1(S.oH) + ' mm' : T('Hülse außen:') + ' ' + f1(S.oH) + ' × ' + f1(S.oW) + ' mm');
     S.warn.forEach(w => line(w, '#ffb454'));
+    if (S.split != null && S.cy != null) c.holm.forEach((st, k) => {
+      const d = stegData(G, c, st, 'holm');
+      for (let z = Math.max(S.z0, d.a); z <= Math.min(S.len, d.b); z += 2) if (Math.abs(d.at(z, 0).x - S.cx(z)) < S.oW / 2 + webOf(st, 'holm') / 2) { line(T('Holmsteg') + ' ' + (k + 1) + ' ' + T('trifft die Hülse – dort aussparen.'), '#ffb454'); break; }
+    });
+    });
   }
   function allStege(G, c) {
     return c.holm.map(st => stegData(G, c, st, 'holm')).concat(c.ruder.map(st => stegData(G, c, st, 'ruder')));
@@ -372,7 +491,7 @@
 
   // Seitenleiste des Reiters (Aufbau nur bei Strukturänderung, Zahlen rechnen ohne Neuaufbau)
   // Eigene Menügruppen wie in den anderen Modulen (Standard zugeklappt): Steghöhen (allgemein), Holmgurt, Steckung, Stege, Stützrippen, Ausgabe
-  const GRP = { cap: ['Holmgurt', 'stegHcap'], stk: ['Steckung', 'stegHstk'], steg: ['Stege', 'stegHsteg'], rip: ['Stützrippen', 'stegHrip'], out: ['Ausgabe', 'stegHout'] };
+  const GRP = { cap: ['Holmgurt', 'stegHcap'], stk: ['Steckung', 'stegHstk'], steg: ['Stege', 'stegHsteg'], lip: ['Dichtlippe (Ruderstege)', 'stegHlip'], rip: ['Stützrippen', 'stegHrip'], out: ['Ausgabe', 'stegHout'] };
   function mkGrp(part) {
     const [title, key] = GRP[part], g = App.grp(title, false, 'stegh', { key });
     g.g.dataset.part = part; side.appendChild(g.g);
@@ -410,6 +529,9 @@
       if (c.capOn === 'outer') App.boolRow(box, 'Innenlage läuft über den Gurt', () => c.capOver !== false, v => { c.capOver = v; upd(); }, 'An: Der Steg steht auf der Innenlage über dem Gurt. Aus: Der Steg steht direkt auf dem Gurt.');
       selectRow(box, 'Ruderstege liegen auf', ON, () => c.ruderOn || 'inner', v => { c.ruderOn = v; upd(); });
     } else numRow(box, 'Schalendicke je Seite (mm)', () => c.shell, v => { c.shell = Math.max(0, v); upd(); }, NR);
+    numRow(box, 'Schalenüberstand Nase (mm)', () => ovLE(c), v => { c.shellOvLE = Math.max(0, v); upd(); }, Object.assign({}, NR, { step: 1 }));
+    numRow(box, 'Schalenüberstand Endleiste (mm)', () => ovTE(c), v => { c.shellOvTE = Math.max(0, v); upd(); }, Object.assign({}, NR, { step: 1 }));
+    hint(box, 'Steht die Schale an Nase oder Endleiste über, zeigt die Liste neben jedem Maß ab Nase bzw. ab Endleiste zusätzlich das Maß plus Überstand.');
     numRow(box, 'Höhe alle … mm Steglänge', () => c.step, v => { c.step = Math.max(1, v); upd(); }, Object.assign({}, NR, { step: 10, min: 1 }));
     // Holmgurt: aufklappbar, fest definiert und unabhängig von den Stegen
     const det = mkGrp('cap');
@@ -425,15 +547,36 @@
       const conv = (z, val) => { const f = frame(G, z), x = f.le + (c.capMode === 'mm' ? (+val || 0) : f.c * (+val || 0) / 100), r = v === 'mm' ? x - f.le : (x - f.le) / f.c * 100; return Math.round(r * 100) / 100; };
       c.capP0 = conv(0, c.capP0); c.capP1 = conv(L, c.capP1);
       if (c.capJ) jointsIn(G, 0, L).forEach(q => { if (c.capJ[q.k] != null) c.capJ[q.k] = conv(q.z, c.capJ[q.k]); });
+      if (Array.isArray(c.capGrp) && c.capGrp.length) capGroups(G, c).forEach(g => { g.gr.p0 = conv(g.z0, g.gr.p0); g.gr.p1 = conv(g.z1, g.gr.p1); });
       c.capMode = v; refresh(true);
     });
     App.boolRow(det, 'Rechtwinklig zur Wurzelrippe (Draufsicht)', () => !!c.capOrtho, v => { c.capOrtho = v; refresh(true); }, 'Gurt und Steckung laufen von oben gesehen gerade, rechtwinklig zur Wurzelrippe: gleiche Rücklage wie an der Wurzel über die ganze Spannweite.');
-    if (G.segs.length > 1 && !c.capOrtho) App.boolRow(det, 'Lage je Segmentstoß einzeln', () => !!c.capPerJoint, v => { c.capPerJoint = v; refresh(true); });
+    if (G.segs.length > 1 && !c.capOrtho) selectRow(det, 'Gurtlage angeben', [['line', 'Wurzel → außen gerade'], ['joint', 'an jedem Segmentstoß'], ['grp', 'je Segmentgruppe innen/außen']], () => capLay(c, G), v => {
+      if (v === 'grp' && capLay(c, G) !== 'grp') { const keep = c.capGrp; c.capGrp = null; capGroups(G, c); if (Array.isArray(keep) && keep.length) c.capGrp = keep; }
+      c.capLay = v; c.capPerJoint = v === 'joint'; refresh(true);
+    });
     {
-      const u = c.capMode === 'mm' ? ' (mm)' : ' (%)', GP = Object.assign({}, NR, { step: 1 });
-      numRow(det, T('Gurtmitte Wurzel') + u, () => c.capP0, v => { c.capP0 = v; upd(); }, GP);
-      if (c.capPerJoint && !c.capOrtho && G.segs.length > 1) fillCapJoints(G, c).forEach(q => numRow(det, T('Gurtmitte') + ' ' + T('Segmentstoß') + ' ' + (q.k + 1) + '|' + (q.k + 2) + u, () => c.capJ[q.k], v => { c.capJ[q.k] = v; upd(); }, GP));
-      if (!c.capOrtho) numRow(det, T('Gurtmitte außen') + u, () => c.capP1, v => { c.capP1 = v; upd(); }, GP);
+      const u = c.capMode === 'mm' ? ' (mm)' : ' (%)', GP = Object.assign({}, NR, { step: 1 }), lay = c.capOrtho ? 'line' : capLay(c, G);
+      if (lay === 'grp') {
+        const GR = capGroups(G, c), N = G.segs.length;
+        numRow(det, 'Anzahl Segmentgruppen', () => GR.length, v => { setCapGroupCount(G, c, v); refresh(true); }, { step: 1, min: 1, max: N, dec: 0 });
+        GR.forEach((g, i) => {
+          const h = document.createElement('div'); h.style.cssText = 'margin:6px 0 2px;font-weight:600;color:#ff6ae6';
+          h.textContent = T('Gruppe') + ' ' + (i + 1) + ': ' + T('Segment') + ' ' + (g.a + 1) + (g.b > g.a ? '–' + (g.b + 1) : '');
+          det.appendChild(h);
+          if (i < GR.length - 1) {
+            const opts = []; for (let k = g.a; k <= N - 1 - (GR.length - 1 - i); k++) opts.push([String(k), T('bis Segment') + ' ' + (k + 1)]);
+            selectRow(det, 'Gruppe endet', opts, () => String(g.b), v => { g.gr.to = +v; refresh(true); });
+          }
+          numRow(det, T('Gurtmitte innen') + u, () => g.gr.p0, v => { g.gr.p0 = v; upd(); }, GP);
+          numRow(det, T('Gurtmitte außen') + u, () => g.gr.p1, v => { g.gr.p1 = v; upd(); }, GP);
+        });
+        hint(det, 'Je Gruppe läuft der Gurt von innen nach außen im Grundriss gerade. An der Grenze zweier Gruppen darf die Lage springen oder knicken.');
+      } else {
+        numRow(det, T('Gurtmitte Wurzel') + u, () => c.capP0, v => { c.capP0 = v; upd(); }, GP);
+        if (lay === 'joint') fillCapJoints(G, c).forEach(q => numRow(det, T('Gurtmitte') + ' ' + T('Segmentstoß') + ' ' + (q.k + 1) + '|' + (q.k + 2) + u, () => c.capJ[q.k], v => { c.capJ[q.k] = v; upd(); }, GP));
+        if (!c.capOrtho) numRow(det, T('Gurtmitte außen') + u, () => c.capP1, v => { c.capP1 = v; upd(); }, GP);
+      }
     }
     // Steckung: aufklappbar, liegt immer zwischen den Gurten
     const dk = mkGrp('stk');
@@ -442,7 +585,7 @@
       if (v && c.stkWall == null) { c.stkWall = 1; c.stkLen = Math.round(Math.min(200, L)); c.stkForm = 'square'; c.stkW = 15; }
       refresh(true);
     });
-    stkBox = null;
+    stkBox = (c.stkOn || (c.stkSplit || []).length) ? document.createElement('div') : null;
     if (c.stkOn) {
       selectRow(dk, 'Form', [['square', 'Vierkant'], ['round', 'Rund']], () => c.stkForm || 'square', v => { c.stkForm = v; refresh(true); });
       if (!c.capOrtho) App.boolRow(dk, 'Rechtwinklig zur Wurzelrippe (Draufsicht)', () => !!c.stkOrtho, v => { c.stkOrtho = v; refresh(true); }, 'Nur die Steckung läuft von oben gesehen gerade, rechtwinklig zur Wurzelrippe, ab der Gurtmitte an der Wurzel. Der Gurt bleibt, wie er ist.');
@@ -452,8 +595,27 @@
       if (c.stkForm === 'round') numRow(dk, 'V-Form der Steckung (° je Seite)', () => c.stkV || 0, v => { c.stkV = clamp(v, -45, 45); upd(); }, Object.assign({}, NR, { step: 0.5, min: -45, max: 45 }));
       App.boolRow(dk, 'Festes Maß eintragen', () => !!c.stkFix, v => { c.stkFix = v; if (v && !(+c.stkD > 0)) { const S0 = stkData(G, c); c.stkD = S0 ? Math.floor(S0.pH * 10) / 10 : 0; } refresh(true); });
       if (c.stkFix) numRow(dk, c.stkForm === 'round' ? 'Durchmesser Steckung (mm)' : 'Dicke Steckung (mm)', () => c.stkD, v => { c.stkD = Math.max(0, v); upd(); }, GR);
-      stkBox = document.createElement('div'); dk.appendChild(stkBox);
     }
+    // Teilungen der Tragfläche in Spannweitenrichtung, je eine eigene Steckung
+    subhead(dk, 'Teilungen in Spannweitenrichtung', '#fff06a');
+    numRow(dk, 'Anzahl Teilungen', () => (c.stkSplit || []).length, v => {
+      const n = Math.max(0, Math.min(10, Math.round(v))), A = c.stkSplit || (c.stkSplit = []);
+      while (A.length > n) A.pop();
+      while (A.length < n) A.push({ z: Math.round(L * (A.length + 1) / (n + 1)), li: 100, la: 100, form: 'square', w: 10, wall: 1 });
+      refresh(true);
+    }, { step: 1, min: 0, max: 10, int: true, norender: true, enter: true });
+    (c.stkSplit || []).forEach((t, i) => {
+      subhead(dk, T('Teilung') + ' ' + (i + 1), '#fff06a');
+      numRow(dk, 'Lage der Trennung ab Wurzel (mm)', () => t.z, v => { t.z = clamp(v, 0, L); upd(); }, Object.assign({}, NR, { step: 5 }));
+      numRow(dk, 'Steckung in den Flügel innen (mm)', () => t.li, v => { t.li = Math.max(0, v); upd(); }, Object.assign({}, NR, { step: 10 }));
+      numRow(dk, 'Steckung in den Flügel außen (mm)', () => t.la, v => { t.la = Math.max(0, v); upd(); }, Object.assign({}, NR, { step: 10 }));
+      selectRow(dk, 'Form', [['square', 'Vierkant'], ['round', 'Rund']], () => t.form || 'square', v => { t.form = v; refresh(true); });
+      numRow(dk, 'Wandstärke Hülse (mm)', () => t.wall, v => { t.wall = Math.max(0, v); upd(); }, GR);
+      if (t.form !== 'round') numRow(dk, 'Breite Steckung (mm)', () => t.w, v => { t.w = Math.max(0, v); upd(); }, GB);
+      App.boolRow(dk, 'Festes Maß eintragen', () => !!t.fix, v => { t.fix = v; if (v && !(+t.d > 0)) { const S0 = stkAll(G, c).find(q => q.split === i); t.d = S0 ? Math.floor(S0.pH * 10) / 10 : 0; } refresh(true); });
+      if (t.fix) numRow(dk, t.form === 'round' ? 'Durchmesser Steckung (mm)' : 'Dicke Steckung (mm)', () => t.d, v => { t.d = Math.max(0, v); upd(); }, GR);
+    });
+    if (stkBox) dk.appendChild(stkBox);
     if (!sel || (c.holm.indexOf(sel) < 0 && c.ruder.indexOf(sel) < 0)) sel = c.holm[0] || c.ruder[0] || null;
     box = mkGrp('steg');
     for (const [kind, label] of [['holm', 'Holmstege'], ['ruder', 'Ruderstege']]) {
@@ -476,10 +638,17 @@
       let iFrom, iTo, iLen;
       const after = () => { if (st.perJoint) refresh(true); else upd(); };   // andere Stöße im Bereich -> neue Zeilen
       const sync = () => { if (iFrom) iFrom.value = f1(+st.from || 0); if (iTo) iTo.value = f1(+st.to || 0); if (iLen) iLen.value = f1(lenNow()); };
-      iFrom = numRow(box, 'Von (mm ab Wurzel)', () => st.from, v => { st.from = clamp(v, 0, L); sync(); after(); }, Object.assign({}, NR, { step: 10 }));
-      iTo = numRow(box, 'Bis (mm ab Wurzel)', () => st.to, v => { st.to = clamp(v, 0, L); sync(); after(); }, Object.assign({}, NR, { step: 10 }));
+      if (G.segs.length > 1) {
+        segSync(G, st);
+        const so = [['', T('frei (mm)')]].concat(G.segs.map((q, k) => [String(k), T('Segment') + ' ' + (k + 1)]));
+        const gs = k => st[k] == null ? '' : String(st[k]);
+        selectRow(box, 'Ab Segment (innen)', so, () => gs('segA'), v => { st.segA = v === '' ? null : +v; if (st.segA != null && st.segB != null && st.segB < st.segA) st.segB = st.segA; segSync(G, st); refresh(true); });
+        selectRow(box, 'Bis Segment (außen)', so, () => gs('segB'), v => { st.segB = v === '' ? null : +v; if (st.segA != null && st.segB != null && st.segA > st.segB) st.segA = st.segB; segSync(G, st); refresh(true); });
+      }
+      iFrom = numRow(box, 'Von (mm ab Wurzel)', () => st.from, v => { st.segA = null; st.from = clamp(v, 0, L); sync(); after(); }, Object.assign({}, NR, { step: 10 }));
+      iTo = numRow(box, 'Bis (mm ab Wurzel)', () => st.to, v => { st.segB = null; st.to = clamp(v, 0, L); sync(); after(); }, Object.assign({}, NR, { step: 10 }));
       iLen = numRow(box, 'Länge des Stegs (mm)', () => f1(lenNow()), v => {
-        const l0 = lenNow(), d = Math.abs((+st.to || 0) - (+st.from || 0));
+        st.segB = null; const l0 = lenNow(), d = Math.abs((+st.to || 0) - (+st.from || 0));
         st.to = clamp((+st.from || 0) + Math.max(0, v) * (l0 > 0 ? d / l0 : 1), 0, L); sync(); after();
       }, Object.assign({}, NR, { step: 10 }));
       hint(box, T('Spannweite gesamt: ') + f1(L) + ' mm');
@@ -488,7 +657,14 @@
       if (kind === 'holm') units.push(['gurt', 'auf dem Gurt verteilt']);
       selectRow(box, 'Lage angeben', units, () => st.unit || 'pct', v => { if (v === 'gurt') c.holm.forEach(q => { q.unit = 'gurt'; }); st.unit = v; fitNext = autoFit = true; refresh(true); });
       const onCap = st.unit === 'gurt', joints = G.segs.length > 1 && !onCap ? (st.perJoint ? fillJoints(G, st) : null) : null;
-      if (G.segs.length > 1 && !onCap) App.boolRow(box, 'Lage je Segmentstoß einzeln', () => !!st.perJoint, v => { st.perJoint = v; refresh(true); }, 'An: eigene Lage an jedem Segmentstoß im Bereich des Stegs; dazwischen läuft er im Grundriss gerade.');
+      const hng = st.unit === 'hinge';
+      if (hng) selectRow(box, 'Abstand angeben', [['same', 'gleich über die ganze Länge'], ['line', 'innen / außen']].concat(G.segs.length > 1 ? [['joint', 'an jedem Segmentstoß'], ['grp', 'je Segmentgruppe innen/außen']] : []), () => hingeLay(G, st), v => {
+        const a0 = clamp(Math.min(+st.from || 0, +st.to || 0), 0, L), b0 = clamp(Math.max(+st.from || 0, +st.to || 0), 0, L);
+        if (v === 'line' && st.off1 == null) st.off1 = +st.off || 0;
+        if (v === 'grp' && hingeLay(G, st) !== 'grp') { const keep = st.hGrp; st.hGrp = null; hGroups(G, st, a0, b0); if (Array.isArray(keep) && keep.length) st.hGrp = keep; }
+        st.hLay = v; st.perJoint = v === 'joint'; refresh(true);
+      });
+      else if (G.segs.length > 1 && !onCap) App.boolRow(box, 'Lage je Segmentstoß einzeln', () => !!st.perJoint, v => { st.perJoint = v; refresh(true); }, 'An: eigene Lage an jedem Segmentstoß im Bereich des Stegs; dazwischen läuft er im Grundriss gerade.');
       const jName = q => T('Segmentstoß') + ' ' + (q.k + 1) + '|' + (q.k + 2);
       if (onCap) {
         const grp = distGroup(c), thr = distThrough(grp);
@@ -501,25 +677,86 @@
           selectRow(box, name, [['1', 'vor der Scharnierlinie'], ['-1', 'nach der Scharnierlinie']], () => String(dir), v => { dir = +v; set(Math.abs(get()) * dir); upd(); });
           numRow(box, 'Abstand (mm)', () => Math.abs(get()), v => { set(Math.max(0, v) * dir); upd(); }, Object.assign({}, NR));
         };
-        if (st.perJoint) {
+        const lay = hingeLay(G, st);
+        if (lay === 'joint') {
           hRow(T('Anfang'), () => +st.off || 0, v => { st.off = v; });
-          joints.forEach(q => hRow(jName(q), () => +st.jpos[q.k] || 0, v => { st.jpos[q.k] = v; }));
+          (joints || []).forEach(q => hRow(jName(q), () => +st.jpos[q.k] || 0, v => { st.jpos[q.k] = v; }));
           hRow(T('Ende'), () => +st.off1 || 0, v => { st.off1 = v; });
+        } else if (lay === 'line') {
+          hRow(T('Innen'), () => +st.off || 0, v => { st.off = v; });
+          hRow(T('Außen'), () => (st.off1 != null ? +st.off1 : +st.off || 0), v => { st.off1 = v; });
+          hint(box, 'Der Abstand ändert sich von innen nach außen gleichmäßig.');
+        } else if (lay === 'grp') {
+          const a0 = clamp(Math.min(+st.from || 0, +st.to || 0), 0, L), b0 = clamp(Math.max(+st.from || 0, +st.to || 0), 0, L);
+          const GR = hGroups(G, st, a0, b0), [kA, kB] = segRange(G, a0, b0);
+          numRow(box, 'Anzahl Segmentgruppen', () => GR.length, v => { setHGroupCount(G, st, a0, b0, v); refresh(true); }, { step: 1, min: 1, max: kB - kA + 1, dec: 0 });
+          GR.forEach((g, i) => {
+            const h = document.createElement('div'); h.style.cssText = 'margin:6px 0 2px;font-weight:600;color:' + COL.ruder;
+            h.textContent = T('Gruppe') + ' ' + (i + 1) + ': ' + T('Segment') + ' ' + (g.a + 1) + (g.b > g.a ? '–' + (g.b + 1) : '');
+            box.appendChild(h);
+            if (i < GR.length - 1) {
+              const opts = []; for (let k = g.a; k <= kB - (GR.length - 1 - i); k++) opts.push([String(k), T('bis Segment') + ' ' + (k + 1)]);
+              selectRow(box, 'Gruppe endet', opts, () => String(g.b), v => { g.gr.to = +v; refresh(true); });
+            }
+            hRow(T('Innen'), () => +g.gr.p0 || 0, v => { g.gr.p0 = v; });
+            hRow(T('Außen'), () => +g.gr.p1 || 0, v => { g.gr.p1 = v; });
+          });
+          hint(box, 'Je Gruppe ändert sich der Abstand von innen nach außen gleichmäßig. An der Grenze zweier Gruppen darf er springen.');
         } else hRow('Lage', () => +st.off || 0, v => { st.off = v; });
       } else {
         const u = st.unit === 'mm' ? ' (mm)' : ' (%)', NP = Object.assign({}, NR, { step: 1 });
         numRow(box, T('Lage Anfang') + u, () => st.pos0, v => { st.pos0 = v; upd(); }, NP);
-        if (st.perJoint) joints.forEach(q => numRow(box, T('Lage') + ' ' + jName(q) + u, () => st.jpos[q.k], v => { st.jpos[q.k] = v; upd(); }, NP));
+        if (st.perJoint) (joints || []).forEach(q => numRow(box, T('Lage') + ' ' + jName(q) + u, () => st.jpos[q.k], v => { st.jpos[q.k] = v; upd(); }, NP));
         numRow(box, T('Lage Ende') + u, () => st.pos1, v => { st.pos1 = v; upd(); }, NP);
         if (!st.perJoint) hint(box, 'Zwischen Anfang und Ende läuft der Steg im Grundriss gerade.');
       }
       numRow(box, 'Stegbreite (mm)', () => webOf(st, kind), v => { st.web = Math.max(0, v); upd(); }, Object.assign({}, NR));
+    }
+    // Dichtlippe: eigenes Menü zu den Ruderstegen (die Schnittansicht zeigt nur Ausschlag und Prüfung)
+    {
+      const lb = mkGrp('lip'), NL = Object.assign({}, NR, { step: 0.1 }), NM = Object.assign({}, NR, { step: 1 });
+      App.boolRow(lb, 'Dichtlippe', () => !!c.lipOn, v => {
+        c.lipOn = v;
+        if (v && c.lipLen == null) { c.lipLen = 25; c.lipOver = 10; c.lipT = 0.3; c.lipGap = 1; c.lipSide = 'opp'; c.lipFix = 'ruder'; }
+        if (v && c.lipR == null && c.lipR0 == null) { c.lipR0 = 10; c.lipSlot = 0; }
+        refresh(true);
+      });
+      if (c.lipOn) {
+        selectRow(lb, 'Seite', [['opp', 'gegenüber Scharnier'], ['top', 'oben'], ['bot', 'unten']], () => c.lipSide || 'opp', v => { c.lipSide = v; refresh(true); });
+        selectRow(lb, 'befestigt an', [['ruder', 'Ruder'], ['wing', 'Flügel']], () => c.lipFix || 'ruder', v => { c.lipFix = v; refresh(true); });
+        numRow(lb, 'Länge (mm)', () => c.lipLen, v => { c.lipLen = Math.max(0, v); upd(); }, NM);
+        numRow(lb, 'Dicke (mm)', () => c.lipT, v => { c.lipT = Math.max(0, v); upd(); }, NL);
+        numRow(lb, 'Spalt (mm)', () => c.lipGap, v => { c.lipGap = Math.max(0, v); upd(); }, NL);
+        const GR = lipRGroups(G, c);
+        if (GR) {
+          GR.forEach((g, i) => {
+            const h = document.createElement('div'); h.style.cssText = 'margin:6px 0 2px;font-weight:600;color:' + COL.ruder;
+            h.textContent = T('Gruppe') + ' ' + (i + 1) + ': ' + T('Segment') + ' ' + (g.a + 1) + (g.b > g.a ? '–' + (g.b + 1) : ''); lb.appendChild(h);
+            numRow(lb, 'Radius innen (mm, 0 = gerade)', () => c.lipRGrp[i].r0, v => { c.lipRGrp[i].r0 = Math.max(0, v); upd(); }, NM);
+            numRow(lb, 'Radius außen (mm, 0 = gerade)', () => c.lipRGrp[i].r1, v => { c.lipRGrp[i].r1 = Math.max(0, v); upd(); }, NM);
+          });
+          hint(lb, 'Gruppen wie beim Rudersteg an der Scharnierlinie. Je Gruppe ändert sich der Radius von innen nach außen gleichmäßig.');
+        } else {
+          numRow(lb, 'Radius innen (mm, 0 = gerade)', () => lipR0(c), v => { c.lipR0 = Math.max(0, v); upd(); }, NM);
+          numRow(lb, 'Radius außen (mm, 0 = gerade)', () => lipR1(c), v => { c.lipR1 = Math.max(0, v); upd(); }, NM);
+        }
+        numRow(lb, 'Ruderschlitz zur Scharnierlinie (mm, + = hinten)', () => +c.lipSlot || 0, v => { c.lipSlot = v; upd(); }, Object.assign({}, NL, { min: -1e9 }));
+        if (c.lipFix !== 'wing') {
+          App.boolRow(lb, 'Vorderen Rudersteg automatisch nach vorne setzen', () => !!c.lipAuto, v => { c.lipAuto = v; if (v && c.lipMax == null) { c.lipMax = 25; c.lipMargin = 0.5; } refresh(true); });
+          if (c.lipAuto) {
+            numRow(lb, 'bis Ausschlag ± (°)', () => c.lipMax, v => { c.lipMax = clamp(v, 0, 45); upd(); }, Object.assign({}, NR, { step: 1 }));
+            numRow(lb, 'Mindestabstand (mm)', () => c.lipMargin, v => { c.lipMargin = Math.max(0, v); upd(); }, NL);
+          }
+        }
+        hint(lb, 'Ausschlag und Prüfung in der Schnittansicht.');
+      }
     }
     if (App.StegRippen) App.StegRippen.sidebar(mkGrp('rip'), { upd, refresh: () => refresh(true) });   // Stützrippen (stuetzrippen.js)
     box = mkGrp('out');
     const bar = document.createElement('div'); bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px';
     if (App.cadImportDxfText) { const b = document.createElement('button'); b.textContent = T('In CAD übernehmen'); b.className = 'primary'; b.title = T('Alle Stege und Stützrippen in den Reiter „CAD-Bearbeitung" laden, je Steg/Rippe eine Ebene (ersetzt dessen Inhalt nach Rückfrage)'); b.onclick = toCad; bar.appendChild(b); }
     const cp = document.createElement('button'); cp.textContent = T('Liste kopieren'); cp.title = T('Höhenliste als Tabelle in die Zwischenablage (z. B. für Excel)'); cp.onclick = copyList; bar.appendChild(cp);
+    const pp = document.createElement('button'); pp.textContent = T('🔍 Druckvorschau…'); pp.title = T('Höhenliste drucken oder als PDF speichern'); pp.onclick = printPreview; bar.appendChild(pp);
     box.appendChild(bar);
     if (scr) scr.scrollTop = keep;
   }
@@ -545,10 +782,107 @@
     App.cadImportDxfText(t, T('Steghöhen'));
     if (App.switchView && document.getElementById('cadView')) App.switchView('cad');
   }
+  // Schalenüberstand: wird zu allen Abständen ab Nase bzw. ab Endleiste addiert (Maß ab Schalenkante)
+  // Schalenüberstand Nase/Endleiste getrennt (Altstand c.shellOv gilt für beide). Die Liste zeigt die Originalmaße
+  // und, wenn ein Überstand gesetzt ist, daneben dieselben Maße plus Überstand (Maß ab Schalenkante).
+  const ovLE = c => Math.max(0, +(c.shellOvLE != null ? c.shellOvLE : c.shellOv) || 0);
+  const ovTE = c => Math.max(0, +(c.shellOvTE != null ? c.shellOvTE : c.shellOv) || 0);
+  const ovH = h => h.replace(/ \(mm\)$/, '') + ' ' + T('+ Überstand') + ' (mm)';
+  const hN = h => [T(h)].concat(ovLE(cfg()) > 0 ? [ovH(T(h))] : []), hT = h => [T(h)].concat(ovTE(cfg()) > 0 ? [ovH(T(h))] : []);
+  const vN = (c, x) => [f1(x)].concat(ovLE(c) > 0 ? [f1(x + ovLE(c))] : []), vT = (c, x) => [f1(x)].concat(ovTE(c) > 0 ? [f1(x + ovTE(c))] : []);
+  // Ruderstege zusätzlich ab Endleiste; kind 'all' = Kopf für die kopierte Gesamtliste
+  const HEAD = kind => [T('ab Steganfang (mm)'), T('ab Wurzel (mm)')].concat(hN('ab Nase (mm)'), kind === 'holm' ? [] : hT('ab Endleiste (mm)'), [T('Profilhöhe (mm)'), T('Abzug (mm)'), T('Steghöhe (mm)')]);
+  function rowVals(G, c, d, r, all) {
+    const f = frame(G, r.z), xn = r.x - f.le;
+    const te = d.kind === 'holm' ? (all ? vT(c, 0).map(() => '') : []) : vT(c, f.c - xn);
+    return [f1(r.s), f1(r.z)].concat(vN(c, xn), te, [r.H == null ? '' : f1(r.H), f1(r.ded), r.h == null ? '' : f1(r.h)]);
+  }
+  const ovText = c => (ovLE(c) > 0 || ovTE(c) > 0) ? T('Schalenüberstand') + ': ' + T('Nase') + ' ' + f1(ovLE(c)) + ' mm, ' + T('Endleiste') + ' ' + f1(ovTE(c)) + ' mm' : '';
+  // Scharnierlinie als eigener Block: alle „Höhe alle … mm“ ab Wurzel + jeder Segmentstoß + außen (hp = Rudertiefe in % von hinten)
+  const HINGEHEAD = () => [T('ab Wurzel (mm)'), T('Profiltiefe (mm)')].concat(hN('Scharnier ab Nase (mm)'), hT('Scharnier ab Endleiste (mm)'));
+  function hingeRows(G, c) {
+    const step = Math.max(1, +c.step || 50), M = [];
+    for (let z = 0; z < G.L - 0.5; z += step) M.push({ z, note: z === 0 ? 'Wurzel' : '' });
+    jointsIn(G, 0, G.L).forEach(q => { const n = T('Segmentstoß') + ' ' + (q.k + 1) + '|' + (q.k + 2), h = M.find(m => Math.abs(m.z - q.z) < 0.5); if (h) { h.z = q.z; h.note = n; } else M.push({ z: q.z, note: n }); });
+    M.push({ z: G.L, note: 'außen' });
+    M.sort((a, b) => a.z - b.z);
+    return M.map(m => { const f = frame(G, m.z), hb = f.c * f.hp / 100; return { note: m.note, v: [f1(m.z), f1(f.c)].concat(vN(c, f.c - hb), vT(c, hb)) }; });
+  }
+  // Stützstoff an der Endleiste: gleiche Stellen wie die Scharnierliste, Maße ab Endleiste (Original + Überstand)
+  const TEHEAD = () => { const c = cfg(); return [T('ab Wurzel (mm)')].concat(layI(c) > 0 ? hT('Schalen berühren sich, Schleifen ab Endleiste (mm)') : [], hT('Stützstoff trifft aufeinander ab Endleiste (mm)'), hT('Stützstoff ganz weg ab Endleiste (mm)')); };
+  function teRows(G, c) {
+    if (!c.layOn || layS(c) <= 0) return [];
+    const step = Math.max(1, +c.step || 50), M = [];
+    for (let z = 0; z < G.L - 0.5; z += step) M.push({ z, note: z === 0 ? 'Wurzel' : '' });
+    jointsIn(G, 0, G.L).forEach(q => { const n = T('Segmentstoß') + ' ' + (q.k + 1) + '|' + (q.k + 2), h = M.find(m => Math.abs(m.z - q.z) < 0.5); if (h) { h.z = q.z; h.note = n; } else M.push({ z: q.z, note: n }); });
+    M.push({ z: G.L, note: 'außen' });
+    M.sort((a, b) => a.z - b.z);
+    const col = d => d == null ? vT(c, 0).map(() => '') : vT(c, d);
+    return M.map(m => { const L = teLayers(G, c, m.z); return { note: m.note, v: [f1(m.z)].concat(layI(c) > 0 ? col(L.start) : [], col(L.meet), col(L.gone)) }; });
+  }
+  // Holmgurt-Liste, unabhängig von den Stegen: alle „Höhe alle … mm“ ab Wurzel + jeder Segmentstoß + außen
+  const CAPHEAD = () => [T('ab Wurzel (mm)')].concat(hN('Gurt von Nase (mm)'), hN('Gurtmitte ab Nase (mm)'), hN('Gurt bis Nase (mm)'), [T('Gurtbreite (mm)'), T('Gurtdicke je Seite (mm)')]);
+  function capRows(G, c) {
+    if (!c.holm || !c.holm.length) return [];
+    const step = Math.max(1, +c.step || 50), M = [];
+    for (let z = 0; z < G.L - 0.5; z += step) M.push({ z, note: z === 0 ? 'Wurzel' : '' });
+    jointsIn(G, 0, G.L).forEach(q => { const n = T('Segmentstoß') + ' ' + (q.k + 1) + '|' + (q.k + 2), h = M.find(m => Math.abs(m.z - q.z) < 0.5); if (h) { h.z = q.z; h.note = n; } else M.push({ z: q.z, note: n }); });
+    M.push({ z: G.L, note: 'außen' });
+    // Segmentgruppen: an jeder Gruppengrenze zusätzlich der Anfangswert der nächsten Gruppe (Lage darf springen)
+    if (!c.capOrtho && capLay(c, G) === 'grp') capGroups(G, c).slice(1).forEach((g, i) => M.push({ z: g.z0, e: 1e-6, note: T('Gruppe') + ' ' + (i + 2) + ' ' + T('innen') }));
+    M.sort((a, b) => a.z - b.z || (a.e || 0) - (b.e || 0));
+    return M.map(m => {
+      const zz = m.z + (m.e || 0), le = frame(G, zz).le, mid = capCenter(G, c, zz) - le, w = capAt(G, c, 'capW', m.z);
+      return { note: m.note, v: [f1(m.z)].concat(vN(c, mid - w / 2), vN(c, mid), vN(c, mid + w / 2), [f1(w), f1(capAt(G, c, 'capT', m.z))]) };
+    });
+  }
+  // Druckvorschau: Liste als A4-Dokument, Drucken über den Systemdialog (dort „Als PDF speichern“/„Microsoft Print to PDF“)
+  function printHtml() {
+    const G = geo(); if (!G) return null;
+    const cc = cfg(), D = allStege(G, cc); if (!D.length) return null;
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, q => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[q]));
+    const title = (state.projectName || T('Projekt')) + ' – ' + T('Steghöhen');
+    const css = 'body{font:10pt/1.35 "Segoe UI",Arial,sans-serif;color:#111;margin:0;background:#fff}.doc{padding:10mm}h1{font-size:16pt;margin:0 0 1mm}.meta{color:#555;font-size:9pt;margin-bottom:4mm}'
+      + 'h2{font-size:11pt;margin:5mm 0 1mm;page-break-after:avoid}.sub{font-size:9pt;color:#444;margin-bottom:1mm}table{border-collapse:collapse;font-size:8.5pt;width:100%}tr{page-break-inside:avoid}'
+      + 'th,td{border:1px solid #bbb;padding:.6mm 1.5mm;text-align:right}th{background:#eee;font-weight:600}td.n{text-align:left}td.h{font-weight:700}tr.j td{background:#f2f2f2}'
+      + '@media print{.doc{padding:0}@page{size:A4;margin:12mm}}';
+    const CR = capRows(G, cc), capHtml = CR.length ? '<h2 style="color:#a0208a">' + esc(T('Holmgurt')) + '</h2><div class="sub">' + esc(T('Gurt von/bis: Vorder- und Hinterkante des Holmgurts in Profilrichtung ab Nase')) + '</div><table><thead><tr>' + CAPHEAD().map(h => '<th>' + esc(h) + '</th>').join('') + '<th>' + esc(T('Stelle')) + '</th></tr></thead><tbody>'
+      + CR.map(r => '<tr' + (/\|/.test(r.note) ? ' class="j"' : '') + '>' + r.v.map(x => '<td>' + x + '</td>').join('') + '<td class="n">' + esc(r.note ? T(r.note) : '') + '</td></tr>').join('') + '</tbody></table>' : '';
+    const HR = hingeRows(G, cc), hingeHtml = '<h2 style="color:#1a8a4a">' + esc(T('Scharnierlinie')) + '</h2><div class="sub">' + esc(T('Lage der Scharnierlinie in Profilrichtung')) + '</div><table><thead><tr>' + HINGEHEAD().map(h => '<th>' + esc(h) + '</th>').join('') + '<th>' + esc(T('Stelle')) + '</th></tr></thead><tbody>'
+      + HR.map(r => '<tr' + (/\|/.test(r.note) ? ' class="j"' : '') + '>' + r.v.map(x => '<td>' + x + '</td>').join('') + '<td class="n">' + esc(r.note ? T(r.note) : '') + '</td></tr>').join('') + '</tbody></table>';
+    const ER = teRows(G, cc), teHtml = ER.length ? '<h2 style="color:#b05a00">' + esc(T('Stützstoff an der Endleiste')) + '</h2><div class="sub">' + esc(T('Ab hier muss der Stützstoff zur Endleiste hin weggeschliffen werden, damit Ober- und Unterschale zusammenpassen.')) + '</div><table><thead><tr>' + TEHEAD().map(h => '<th>' + esc(h) + '</th>').join('') + '<th>' + esc(T('Stelle')) + '</th></tr></thead><tbody>'
+      + ER.map(r => '<tr' + (/\|/.test(r.note) ? ' class="j"' : '') + '>' + r.v.map(x => '<td>' + (x === '' ? '—' : x) + '</td>').join('') + '<td class="n">' + esc(r.note ? T(r.note) : '') + '</td></tr>').join('') + '</tbody></table>' : '';
+    const body = capHtml + hingeHtml + teHtml + D.map(d => '<h2>' + esc(d.st.name) + '</h2><div class="sub">' + esc(T('Länge')) + ' ' + f1(d.len) + ' mm · ' + esc(T('Stegbreite')) + ' ' + f1(webOf(d.st, d.kind)) + ' mm</div>'
+      + '<table><thead><tr>' + HEAD(d.kind).map(h => '<th>' + esc(h) + '</th>').join('') + '<th>' + esc(T('Stelle')) + '</th></tr></thead><tbody>'
+      + d.rows.map(r => { const v = rowVals(G, cc, d, r); return '<tr' + (/\|/.test(r.note) ? ' class="j"' : '') + '>' + v.map((x, i) => '<td' + (i === v.length - 1 ? ' class="h"' : '') + '>' + (x === '' ? '—' : x) + '</td>').join('') + '<td class="n">' + esc(r.note ? T(r.note) : '') + '</td></tr>'; }).join('')
+      + '</tbody></table>').join('');
+    return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + css + '</style></head><body><div class="doc"><h1>' + esc(T('Steghöhen')) + '</h1><div class="meta">' + [state.projectName ? esc(state.projectName) : '', new Date().toLocaleDateString(), esc(ovText(cc))].filter(Boolean).join(' · ') + '</div>' + body + '</div></body></html>';
+  }
+  function printPreview() {
+    const html = printHtml();
+    if (!html) { App.toast && App.toast(T('Keine Stege mit Höhe vorhanden.')); return; }
+    const ov = document.createElement('div'); ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;padding:16px';
+    const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;color:#fff';
+    const lb = document.createElement('b'); lb.textContent = T('Druckvorschau'); bar.appendChild(lb);
+    const fr = document.createElement('iframe'); fr.style.cssText = 'flex:1;width:min(230mm,100%);border:0;background:#fff;box-shadow:0 2px 12px #000';
+    const bp = document.createElement('button'); bp.className = 'primary'; bp.textContent = T('Drucken / als PDF…'); bp.title = T('Systemdruckdialog öffnen; als Drucker „Als PDF speichern“ oder „Microsoft Print to PDF“ wählen');
+    bp.onclick = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { alert(e.message); } };
+    const bc = document.createElement('button'); bc.textContent = T('Schließen');
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    bc.onclick = close; document.addEventListener('keydown', onKey);
+    bar.appendChild(bp); bar.appendChild(bc); ov.appendChild(bar); ov.appendChild(fr); document.body.appendChild(ov);
+    const dd = fr.contentWindow.document; dd.open(); dd.write(html); dd.close();
+  }
   function copyList() {
     const G = geo(); if (!G) return;
-    const out = [[T('Steg'), T('ab Steganfang (mm)'), T('ab Wurzel (mm)'), T('ab Nase (mm)'), T('Profilhöhe (mm)'), T('Abzug (mm)'), T('Steghöhe (mm)'), T('Stelle')].join('\t')];
-    allStege(G, cfg()).forEach(d => d.rows.forEach(r => out.push([d.st.name, f1(r.s), f1(r.z), f1(r.x - frame(G, r.z).le), r.H == null ? '' : f1(r.H), f1(r.ded), r.h == null ? '' : f1(r.h), r.note ? T(r.note) : ''].join('\t'))));
+    const cc = cfg(), out = [[T('Steg')].concat(HEAD('all'), [T('Stelle')]).join('\t')];
+    allStege(G, cc).forEach(d => d.rows.forEach(r => out.push([d.st.name].concat(rowVals(G, cc, d, r, true), [r.note ? T(r.note) : '']).join('\t'))));
+    const CR = capRows(G, cc);
+    if (CR.length) { out.push('', [T('Holmgurt')].concat(CAPHEAD(), [T('Stelle')]).join('\t')); CR.forEach(r => out.push([T('Holmgurt')].concat(r.v, [r.note ? T(r.note) : '']).join('\t'))); }
+    const ER = teRows(G, cc);
+    if (ER.length) { out.push('', [T('Stützstoff an der Endleiste')].concat(TEHEAD(), [T('Stelle')]).join('\t')); ER.forEach(r => out.push([T('Stützstoff an der Endleiste')].concat(r.v, [r.note ? T(r.note) : '']).join('\t'))); }
+    out.push('', [T('Scharnierlinie')].concat(HINGEHEAD(), [T('Stelle')]).join('\t')); hingeRows(G, cc).forEach(r => out.push([T('Scharnierlinie')].concat(r.v, [r.note ? T(r.note) : '']).join('\t')));
     const txt = out.join('\r\n');
     const ok = () => { App.toast && App.toast(T('Liste kopiert.')); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok, () => {});
@@ -562,7 +896,14 @@
     const cc = cfg(), D = allStege(G, cc);
     if (!D.length) { tbl.innerHTML = '<div class="hint">' + esc(T('Noch kein Steg — links die Anzahl eintragen.')) + '</div>'; return; }
     const keep = tbl.scrollTop, th = 'text-align:right;padding:2px 10px;border-bottom:1px solid var(--border,#2a3038);font-weight:600', td = 'text-align:right;padding:1px 10px';
-    tbl.innerHTML = D.map(d => {
+    const CR = capRows(G, cc), capHtml = CR.length ? '<div style="margin:6px 0 2px;font-weight:700;color:#ff6ae6">' + esc(T('Holmgurt')) + ' — ' + esc(T('Lage in Profilrichtung ab Nase')) + '</div><table style="border-collapse:collapse"><tr><th style="' + th + '">' + CAPHEAD().map(esc).join('</th><th style="' + th + '">') + '</th><th style="' + th + ';text-align:left"></th></tr>'
+      + CR.map(r => '<tr' + (/\|/.test(r.note) ? ' style="background:rgba(255,255,255,.06)"' : '') + '>' + r.v.map((x, i) => '<td style="' + td + (i >= 1 && i < r.v.length - 2 ? ';color:#ff6ae6' : '') + '">' + x + '</td>').join('') + '<td style="' + td + ';text-align:left">' + esc(r.note ? T(r.note) : '') + '</td></tr>').join('') + '</table>' : '';
+    const HR = hingeRows(G, cc), hingeHtml = '<div style="margin:6px 0 2px;font-weight:700;color:#7ee0a0">' + esc(T('Scharnierlinie')) + ' — ' + esc(T('Lage der Scharnierlinie in Profilrichtung')) + '</div><table style="border-collapse:collapse"><tr><th style="' + th + '">' + HINGEHEAD().map(esc).join('</th><th style="' + th + '">') + '</th><th style="' + th + ';text-align:left"></th></tr>'
+      + HR.map(r => '<tr' + (/\|/.test(r.note) ? ' style="background:rgba(255,255,255,.06)"' : '') + '>' + r.v.map((x, i) => '<td style="' + td + (i >= 2 ? ';color:#7ee0a0' : '') + '">' + x + '</td>').join('') + '<td style="' + td + ';text-align:left">' + esc(r.note ? T(r.note) : '') + '</td></tr>').join('') + '</table>';
+    const ovNote = ovText(cc) ? '<div style="color:#9aa4ad;margin:4px 0">' + esc(ovText(cc)) + ' — ' + esc(T('Spalten „+ Überstand“ = Maß ab Schalenkante')) + '</div>' : '';
+    const ER = teRows(G, cc), teHtml = ER.length ? '<div style="margin:6px 0 2px;font-weight:700;color:#ffa040">' + esc(T('Stützstoff an der Endleiste')) + ' — ' + esc(T('ab hier wegschleifen, damit die Schalen zusammenpassen')) + '</div><table style="border-collapse:collapse"><tr><th style="' + th + '">' + TEHEAD().map(esc).join('</th><th style="' + th + '">') + '</th><th style="' + th + ';text-align:left"></th></tr>'
+      + ER.map(r => '<tr' + (/\|/.test(r.note) ? ' style="background:rgba(255,255,255,.06)"' : '') + '>' + r.v.map((x, i) => '<td style="' + td + (i ? ';color:#ffa040' : '') + '">' + (x === '' ? '—' : x) + '</td>').join('') + '<td style="' + td + ';text-align:left">' + esc(r.note ? T(r.note) : '') + '</td></tr>').join('') + '</table>' : '';
+    tbl.innerHTML = ovNote + capHtml + hingeHtml + teHtml + D.map(d => {
       const bad = d.rows.some(r => r.h == null || r.h <= 0);
       const off = d.kind === 'holm' && d.rows.some(r => Math.abs(capCenter(G, cc, r.z) - r.x) + webOf(d.st, d.kind) / 2 > capAt(G, cc, 'capW', r.z) / 2 + 1e-6);
       return '<div style="margin:6px 0 2px;font-weight:700;color:' + COL[d.kind] + '">' + esc(d.st.name) + ' — ' + esc(T('Länge')) + ' ' + f1(d.len) + ' mm · ' + esc(T('Stegbreite')) + ' ' + f1(webOf(d.st, d.kind)) + ' mm</div>'
@@ -571,10 +912,10 @@
         + (d.stkCut ? '<div style="color:#7ee0a0">' + esc(d.len > 0 ? T('Von der Steckung gekürzt: beginnt bei') + ' ' + f1(d.a) + ' mm ' + T('ab Wurzel') : T('Liegt ganz im Bereich der Steckung und entfällt.')) + '</div>' : '')
         + (off ? '<div style="color:#ffb454">' + esc(T('Der Steg steht stellenweise nicht ganz auf dem Gurt.')) + '</div>' : '')
         + (bad ? '<div style="color:#ffb454">' + esc(T('Stellenweise außerhalb des Profils oder ohne Resthöhe.')) + '</div>' : '')
-        + '<table style="border-collapse:collapse"><tr><th style="' + th + '">' + [T('ab Steganfang (mm)'), T('ab Wurzel (mm)'), T('ab Nase (mm)'), T('Profilhöhe (mm)'), T('Abzug (mm)'), T('Steghöhe (mm)')].map(esc).join('</th><th style="' + th + '">') + '</th><th style="' + th + ';text-align:left"></th></tr>'
+        + '<table style="border-collapse:collapse"><tr><th style="' + th + '">' + HEAD(d.kind).map(esc).join('</th><th style="' + th + '">') + '</th><th style="' + th + ';text-align:left"></th></tr>'
         + d.rows.map(r => {
-          const j = /\|/.test(r.note);
-          return '<tr' + (j ? ' style="background:rgba(255,255,255,.06)"' : '') + '><td style="' + td + '">' + f1(r.s) + '</td><td style="' + td + '">' + f1(r.z) + '</td><td style="' + td + '">' + f1(r.x - frame(G, r.z).le) + '</td><td style="' + td + '">' + (r.H == null ? '—' : f1(r.H)) + '</td><td style="' + td + '">' + f1(r.ded) + '</td><td style="' + td + ';font-weight:700' + (r.h == null || r.h <= 0 ? ';color:#ffb454' : '') + '">' + (r.h == null ? '—' : f1(r.h)) + '</td><td style="' + td + ';text-align:left">' + esc(r.note ? T(r.note) : '') + '</td></tr>';
+          const j = /\|/.test(r.note), v = rowVals(G, cc, d, r);
+          return '<tr' + (j ? ' style="background:rgba(255,255,255,.06)"' : '') + '>' + v.map((x, i) => '<td style="' + td + (i === v.length - 1 ? ';font-weight:700' + (r.h == null || r.h <= 0 ? ';color:#ffb454' : '') : '') + '">' + (x === '' ? '—' : x) + '</td>').join('') + '<td style="' + td + ';text-align:left">' + esc(r.note ? T(r.note) : '') + '</td></tr>';
         }).join('') + '</table>';
     }).join('');
     tbl.scrollTop = keep;
@@ -636,13 +977,18 @@
     }
     // Steckung in der Draufsicht
     {
-      const cc = cfg(), S = stkData(G, cc);
-      if (S && S.len > 0 && S.oW > 0) {
-        const Z = [0, S.len].concat(G.segs.slice(0, -1).map(q => q.z1).filter(z => z < S.len)).sort((p, q) => p - q);
-        line(Z.map(z => [z, -(stkCenter(G, cc, z) - S.oW / 2)]).concat(Z.slice().reverse().map(z => [z, -(stkCenter(G, cc, z) + S.oW / 2)])), true);
+      const cc = cfg();
+      stkAll(G, cc).forEach(S => {
+        if (S.split != null) {
+          const fr = frame(G, S.zt), xs = fr ? [fr.le, fr.le + fr.c] : [];
+          if (xs.length) { cx.setLineDash([6, 3]); cx.strokeStyle = '#ff6a6a'; cx.lineWidth = 1.6; line([[S.zt, -xs[0] + 6], [S.zt, -xs[xs.length - 1] - 6]]); cx.stroke(); cx.setLineDash([]); cx.fillStyle = '#ff6a6a'; cx.fillText(T('Teilung') + ' ' + (S.split + 1), X(S.zt) + 3, Y(-xs[0] + 6) - 4); }
+        }
+        if (!(S.len > S.z0 && S.oW > 0)) return;
+        const Z = [S.z0, S.len].concat(G.segs.slice(0, -1).map(q => q.z1).filter(z => z > S.z0 && z < S.len)).sort((p, q) => p - q);
+        line(Z.map(z => [z, -(S.cx(z) - S.oW / 2)]).concat(Z.slice().reverse().map(z => [z, -(S.cx(z) + S.oW / 2)])), true);
         cx.fillStyle = 'rgba(255,240,106,.28)'; cx.fill(); cx.strokeStyle = '#fff06a'; cx.lineWidth = 1.3; cx.stroke();
-        cx.fillStyle = '#fff06a'; cx.fillText(T('Steckung'), X(S.len) + 4, Y(-stkCenter(G, cc, S.len)) + 4);
-      }
+        if (S.split == null) { cx.fillStyle = '#fff06a'; cx.fillText(T('Steckung'), X(S.len) + 4, Y(-S.cx(S.len)) + 4); }
+      });
     }
     if (App.StegRippen) App.StegRippen.drawPlan(cx, X, Y, G, view.s, hits);
     // Segmentstöße (durch Draufsicht und Stege)
@@ -731,28 +1077,6 @@
     dn.onchange = () => { const v = parseFloat(dn.value.replace(',', '.')); if (isNaN(v)) return; secDelta = clamp(v, -45, 45); dn.value = secDelta; dr.value = secDelta; drawSec(); };
     const z0 = document.createElement('button'); z0.textContent = '0°'; z0.style.padding = '2px 7px'; z0.onclick = () => { secDelta = 0; dn.value = 0; dr.value = 0; drawSec(); };
     sTop.append(lab('Ruderausschlag (°, + = nach unten)'), dn, dr, z0);
-    const lc = document.createElement('label'); lc.style.cssText = 'display:flex;gap:4px;align-items:center';
-    const lb = document.createElement('input'); lb.type = 'checkbox'; lb.checked = !!c.lipOn;
-    lb.onchange = () => { c.lipOn = lb.checked; setTimeout(update, 0); if (c.lipLen == null) { c.lipLen = 25; c.lipOver = 10; c.lipT = 0.3; c.lipGap = 1; c.lipSide = 'opp'; c.lipFix = 'ruder'; }
-      if (c.lipR == null) { c.lipR = 10; c.lipSlot = 0; } secBar(); drawSec(); };
-    lc.append(lb, lab('Dichtlippe')); sTop.appendChild(lc);
-    if (c.lipOn) {
-      const brk2 = brk.cloneNode(); sTop.appendChild(brk2);
-      const sel = (t, key, opts) => { const e = document.createElement('select'); opts.forEach(([v, n]) => { const o = document.createElement('option'); o.value = v; o.textContent = T(n); e.appendChild(o); }); e.value = c[key]; e.onchange = () => { c[key] = e.value; secBar(); update(); }; sTop.append(lab(t), e); };
-      if (c.lipR == null) { c.lipR = 10; c.lipSlot = 0; }
-      const nm = (t, key, neg) => { const e = document.createElement('input'); e.type = 'text'; e.inputMode = 'decimal'; e.style.width = '50px'; e.value = c[key]; e.onchange = () => { const v = parseFloat(e.value.replace(',', '.')); if (!isNaN(v)) { c[key] = neg ? v : Math.max(0, v); update(); } }; sTop.append(lab(t), e); };
-      sel('Seite', 'lipSide', [['opp', 'gegenüber Scharnier'], ['top', 'oben'], ['bot', 'unten']]);
-      sel('befestigt an', 'lipFix', [['ruder', 'Ruder'], ['wing', 'Flügel']]);
-      nm('Länge (mm)', 'lipLen'); nm('Dicke (mm)', 'lipT'); nm('Spalt (mm)', 'lipGap'); nm('Radius (mm, 0 = gerade)', 'lipR'); nm('Ruderschlitz zur Scharnierlinie (mm, + = hinten)', 'lipSlot', true);
-      if (c.lipFix !== 'wing') {
-        const brk3 = brk.cloneNode(); sTop.appendChild(brk3);
-        const al = document.createElement('label'); al.style.cssText = 'display:flex;gap:4px;align-items:center';
-        const ab = document.createElement('input'); ab.type = 'checkbox'; ab.checked = !!c.lipAuto;
-        ab.onchange = () => { c.lipAuto = ab.checked; if (c.lipMax == null) { c.lipMax = 25; c.lipMargin = 0.5; } secBar(); update(); };
-        al.append(ab, lab('Vorderen Rudersteg automatisch nach vorne setzen')); sTop.appendChild(al);
-        if (c.lipAuto) { nm('bis Ausschlag ± (°)', 'lipMax'); nm('Mindestabstand (mm)', 'lipMargin'); }
-      }
-    }
   }
   // Ruder und Dichtlippe an der Stelle z: Drehung um den Scharnierpunkt auf der Scharnierseite (Ausschlag + = Ruder nach unten).
   // Die Lippe liegt starr unter der Schale und überlappt den Spalt; am Ruder befestigt dreht sie mit und kann den
@@ -763,6 +1087,27 @@
     const sL = section(G, a.x - web / 2, z) || fb, sR = section(G, a.x + web / 2, z) || fb;
     return { x: a.x, Q: [[a.x - web / 2, sL.top - inset], [a.x + web / 2, sR.top - inset], [a.x + web / 2, sR.bot + inset], [a.x - web / 2, sL.bot + inset]] };
   }
+  // Radius der Dichtlippe: innen/außen über die Spannweite; ist ein Rudersteg (Scharnierlinie) in Segmentgruppen
+  // geteilt, gilt je Gruppe ein eigener Radius innen/außen (c.lipRGrp[i] = { r0, r1 }).
+  function lipGrpSteg(G, c) { return G.segs.length > 1 ? (c.ruder || []).find(st => st.unit === 'hinge' && hingeLay(G, st) === 'grp') || null : null; }
+  function lipRGroups(G, c) {
+    const st = lipGrpSteg(G, c); if (!st) return null;
+    const a0 = clamp(Math.min(+st.from || 0, +st.to || 0), 0, G.L), b0 = clamp(Math.max(+st.from || 0, +st.to || 0), 0, G.L), GR = hGroups(G, st, a0, b0);
+    if (!Array.isArray(c.lipRGrp)) c.lipRGrp = [];
+    GR.forEach((g, i) => { if (!c.lipRGrp[i]) c.lipRGrp[i] = { r0: lipR0(c), r1: lipR1(c) }; });
+    if (c.lipRGrp.length > GR.length) c.lipRGrp.length = GR.length;
+    return GR;
+  }
+  const lipR0 = c => Math.max(0, +(c.lipR0 != null ? c.lipR0 : c.lipR) || 0), lipR1 = c => Math.max(0, +(c.lipR1 != null ? c.lipR1 : lipR0(c)) || 0);
+  function lipRadAt(G, c, z) {
+    const lerp = (r0, r1, z0, z1) => Math.max(0, (+r0 || 0) + ((+r1 || 0) - (+r0 || 0)) * (z1 > z0 ? clamp((z - z0) / (z1 - z0), 0, 1) : 0));
+    const GR = lipRGroups(G, c);
+    if (GR) {
+      let i = GR.findIndex(g => z <= g.z1 + 1e-6); if (i < 0) i = GR.length - 1;
+      const g = GR[i], r = c.lipRGrp[i]; return lerp(r.r0, r.r1, g.z0, g.z1);
+    }
+    return lerp(lipR0(c), lipR1(c), 0, G.L);
+  }
   function ruderAt(G, c, z, D) {
     const f = frame(G, z), xh = f.le + f.c * (1 - f.hp / 100), sec = section(G, xh, z); if (!sec) return null;
     const hs = locate(G, z).s.sg.hingeSide === 'bottom' ? 'bot' : 'top', H = [xh, hs === 'top' ? sec.top : sec.bot];
@@ -770,7 +1115,7 @@
     const opp = hs === 'top' ? 'bot' : 'top', R = { xh, xs: xh + (c.lipOn ? +c.lipSlot || 0 : 0), H, hs, rotBy, lip: null, side: opp, gap: Math.max(0, +c.lipGap || 0) };
     if (!c.lipOn) return R;
     const side = c.lipSide === 'top' || c.lipSide === 'bot' ? c.lipSide : opp, t = Math.max(0, +c.lipT || 0), onRuder = c.lipFix !== 'wing';
-    const len = Math.max(0, +c.lipLen || 0), root = onRuder ? R.xs + R.gap : R.xs, tip = onRuder ? root - len : root + len, sh = shellOf(c), rad = Math.max(0, +c.lipR || 0), lip = [];
+    const len = Math.max(0, +c.lipLen || 0), root = onRuder ? R.xs + R.gap : R.xs, tip = onRuder ? root - len : root + len, sh = shellOf(c), rad = lipRadAt(G, c, z), lip = [];
     // Fuß genau an der Kante des Ruders (bzw. des Flügels), Außenfläche bündig mit der Kontur; von dort tangential, zur Spitze hin mit dem Radius nach innen gebogen (0 = gerade)
     for (let i = 0; i <= 40; i++) {
       const x = tip + (root - tip) * i / 40, sc = section(G, x, z), d = Math.abs(x - root); if (!sc) continue;
@@ -872,6 +1217,28 @@
         g.beginPath(); up.concat(dn.reverse()).forEach((p, i) => { const a = X(p[0]), b = Y(p[1] + q.dy); if (i) g.lineTo(a, b); else g.moveTo(a, b); }); g.closePath();
         g.strokeStyle = '#d6ffe8'; g.lineWidth = 0.7; g.stroke();
       });
+      // Stützstoff an der Endleiste: Schleifbereich rot, Linien an Beginn / Treffpunkt / Stützstoff ganz weg
+      {
+        const L = teLayers(G, cfg(), q.z);
+        if (L && L.start != null) {
+          const u0 = q.xr - L.start, band = [], lo = [];
+          for (let i = 0; i <= 40; i++) { const u = u0 + (q.xr - u0) * i / 40, sc = section(G, q.le + Math.min(u, q.xr - 1e-3), q.z); if (sc) { band.push([u, sc.top]); lo.push([u, sc.bot]); } }
+          if (band.length > 1) {
+            g.beginPath(); band.concat(lo.reverse()).forEach((p, i) => { const a = X(p[0]), b = Y(p[1] + q.dy); if (i) g.lineTo(a, b); else g.moveTo(a, b); }); g.closePath();
+            g.fillStyle = 'rgba(255,90,60,.35)'; g.fill();
+          }
+          g.save(); g.setLineDash([4, 3]); g.lineWidth = 1; g.font = '10px sans-serif';
+          [[L.start, '#ff6040', T('Schleifen ab')], [L.meet, '#ffa040', T('Stützstoff trifft')], [L.gone, '#ffd060', T('Stützstoff weg')]].forEach(([d, col, lab], k) => {
+            if (d == null || (k === 1 && Math.abs(d - L.start) < 1e-3 && layI(cfg()) <= 0)) return;
+            const u = q.xr - d, sc = section(G, q.le + u, q.z); if (!sc) return;
+            // Linie durchs Profil, Beschriftung gestaffelt über der Endleiste (unten stehen die Steg-Namen)
+            const s0 = section(G, q.le + u0, q.z), yb = Y((s0 ? s0.top : sc.top) + q.dy) - 8 - 12 * (2 - k);
+            g.strokeStyle = col; g.beginPath(); g.moveTo(X(u), yb + 3); g.lineTo(X(u), Y(sc.bot + q.dy) + 3); g.stroke();
+            g.fillStyle = col; g.textAlign = 'right'; g.fillText(lab + ' ' + f1(d) + ' mm ' + T('v. EL'), X(u) - 3, yb);
+          });
+          g.restore(); g.textAlign = 'left';
+        }
+      }
       const shTxt = cfg().layOn ? f1(layA(cfg())) + ' + ' + f1(layS(cfg())) + ' + ' + f1(layI(cfg())) + ' mm' : f1(shellT) + ' mm';
       g.fillStyle = '#9aa7b8'; g.fillText(f1(q.z) + ' mm ' + T('ab Wurzel') + ' · ' + T('Schale') + ' ' + shTxt, X(0), Y(q.hi + q.dy) - 8);
       // Gurte oben/unten, fest definiert und unabhängig von den Stegen: folgen der Kontur, unter der Schale
@@ -889,9 +1256,9 @@
       }
       // Steckung im Schnitt: Hülse und Steckung, nur innerhalb der Einbindetiefe
       {
-        const cc = cfg(), S = stkData(G, cc);
-        if (S && S.cy != null && q.z <= S.len + 1e-6 && S.oH > 0) {
-          const u = X(stkCenter(G, cc, q.z) - q.le), v = Y(S.cy + q.z * S.tan + q.dy), k = PX, shape = (w, h) => { g.beginPath(); if (S.round) g.arc(u, v, Math.max(0, w) / 2 * k, 0, 7); else g.rect(u - w / 2 * k, v - h / 2 * k, w * k, h * k); };
+        const cc = cfg();
+        for (const S of stkAll(G, cc)) if (S.cy != null && q.z >= S.z0 - 1e-6 && q.z <= S.len + 1e-6 && S.oH > 0) {
+          const u = X(S.cx(q.z) - q.le), v = Y(S.cy + q.z * S.tan + q.dy), k = PX, shape = (w, h) => { g.beginPath(); if (S.round) g.arc(u, v, Math.max(0, w) / 2 * k, 0, 7); else g.rect(u - w / 2 * k, v - h / 2 * k, w * k, h * k); };
           shape(S.oW, S.oH); g.fillStyle = 'rgba(255,240,106,.25)'; g.fill(); g.strokeStyle = '#fff06a'; g.lineWidth = 1.2; g.stroke();
           if (S.inH > 0 && S.inW > 0) { shape(S.inW, S.inH); g.fillStyle = 'rgba(255,240,106,.65)'; g.fill(); g.stroke(); }
         }
@@ -955,6 +1322,24 @@
         if (wq) fillPoly(d.kind === 'ruder' && RU && wq.x > RU.xh ? wq.Q.map(rr) : wq.Q, col + '55');
         g.fillStyle = col; g.fillText((d.st.name || '') + ': ' + (a.h != null ? f1(a.h) : '—') + ' mm', u + 6, Y(q.lo + q.dy) + 16 + 14 * (n++ % 3));
       });
+      // Bemaßung: Abstand der Ruderstege (Mitte) zur Scharnierlinie, oberhalb des Profils
+      if (RU && RU.xh != null) {
+        let m = 0; const xh = X(RU.xh - q.le), yTop = Y(q.hi + q.dy);
+        D.forEach(d => {
+          if (d.kind !== 'ruder' || q.z < d.a - 1e-6 || q.z > d.b + 1e-6) return;
+          const a = d.at(q.z, 0); if (a.H == null || a.x == null) return;
+          const hw = webOf(d.st, d.kind) / 2, xf = a.x < RU.xh ? a.x + hw : a.x - hw;   // dem Scharnier zugewandte Stegseite
+          const xw = X(xf - q.le), y = yTop - 22 - 16 * m++, dist = Math.abs(RU.xh - xf), col = COL.ruder;
+          g.save(); g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1;
+          g.setLineDash([2, 3]); g.beginPath(); g.moveTo(xw, yTop); g.lineTo(xw, y - 4); g.moveTo(xh, yTop); g.lineTo(xh, y - 4); g.stroke(); g.setLineDash([]);
+          g.beginPath(); g.moveTo(xw, y); g.lineTo(xh, y); g.stroke();
+          const s = xh > xw ? 1 : -1, arr = (x, dr) => { g.beginPath(); g.moveTo(x, y); g.lineTo(x + dr * 6, y - 3); g.lineTo(x + dr * 6, y + 3); g.closePath(); g.fill(); };
+          if (Math.abs(xh - xw) > 14) { arr(xw, s); arr(xh, -s); }
+          const tx = f1(dist) + ' mm', tw = g.measureText(tx).width;
+          g.fillText(tx, Math.abs(xh - xw) > tw + 6 ? (xw + xh) / 2 - tw / 2 : Math.max(xw, xh) + 4, y - 3);
+          g.restore();
+        });
+      }
       if (App.StegRippen) App.StegRippen.drawSec(g, G, q, X, Y);   // Stützrippe an dieser Stelle
   }
   // Schnitt an die Stelle z (z. B. gewählte Stützrippe)
@@ -988,6 +1373,6 @@
   }
 
   App.stegHSidebar = stegHSidebar;
-  App.StegApi = { showSecAt, focus, getSel: () => sel, capFace, cfg, geo, frame, section, capCenter, stkCenter, capAt, insetOf, shellOf, layA, webOf, allStege, stkData, ruderAt, secOne, profOf, f1, fl1, clamp };
-  window.StegHoehen = { show, refresh, _test: { stkData, autoShift, ruderAt, distX, distFits, fillCapJoints, capAt, capCenter, webOf, setBottom, fillJoints, geo, section, stegData, allStege, dxfText, cfg } };
+  App.StegApi = { stkAll, showSecAt, focus, getSel: () => sel, capFace, cfg, geo, frame, section, capCenter, stkCenter, capAt, insetOf, shellOf, layA, webOf, allStege, stkData, ruderAt, secOne, profOf, f1, fl1, clamp };
+  window.StegHoehen = { show, refresh, _test: { stkAll, stkData, autoShift, ruderAt, distX, distFits, fillCapJoints, capAt, capCenter, webOf, setBottom, fillJoints, geo, section, stegData, allStege, dxfText, cfg } };
 })();

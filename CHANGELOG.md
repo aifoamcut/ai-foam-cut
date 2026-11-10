@@ -4,6 +4,93 @@ Alle nennenswerten Änderungen an **AI Foam Cut** werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/).
 Neueste Einträge oben.
 
+## [2.13] — 2026-11-10
+
+### Fix: Holm „kürzester Weg“ + Rückmeldungen Neil P. (2026-11-10)
+- Holmausschnitt mit Anfahrt **Kürzester Weg**: Wurzel- und Randrippe konnten verschiedene Seiten wählen (typisch: waagrechte Steckungsröhre, Profil wird nach außen dünner). Dann wurde ein Einstich von oben mit einem von unten gemischt, und die Schnittbahn in der Nähe (z. B. die untere Gurttasche) war zerstört. Jetzt fahren beide Rippen immer von derselben Seite an, und zwar von der mit der kürzeren Gesamtanfahrt.
+- Profilbearbeitung: Wird die Dicke geändert, steht sie jetzt im Profilnamen (z. B. „NACA 0012 (11.0 %)“). Bisher hieß ein auf 11 % gebrachtes NACA 0012 weiter „NACA 0012“, und das 11-%-Profil schien verloren.
+- Maschine (Heißdraht und Fräse): **Start** grün, **Stopp/Abbruch** rot hervorgehoben.
+- Englisch: fehlende Texte ergänzt (Scharnierschnitt, Anfahrt-Hinweise, Drehteller u. a.).
+
+### Fix: Holmschnitt „nach Oberseitenschnitt“ bei der linken Hälfte (2026-11-10)
+- Linke Hälfte: Die Nase wurde nur am linken Turm gesucht. Wegen der stark verlängerten (gespiegelten) Turmbahn lag sie dann fast an der Endleiste. Dadurch kam die Pause schon nach wenigen Punkten, und die Reihenfolge stimmte nicht. Jetzt dient die Wurzelrippe als Bezug, und linke und rechte Hälfte laufen spiegelgleich.
+- Nach der Pause fährt der Draht mit Schnittvorschub statt mit Höchstgeschwindigkeit nach oben aus dem Block, weil er noch im Schaumrest stehen kann.
+
+### Steghöhen: Steckungen an Teilungen in Spannweitenrichtung (2026-11-08)
+- In der Menügruppe **Steckung** neu: **Teilungen in Spannweitenrichtung** (bis 10). Je Teilung: Lage der Trennung ab Wurzel, Steckung x mm in den Flügel innen und x mm in den Flügel außen, Form Vierkant oder Rund, Wandstärke Hülse, Breite (Vierkant), festes Maß.
+- Die Teilungssteckung liegt zwischen den Gurten entlang der Gurtmitte; mögliches Maß und Hülse werden wie bei der Hauptsteckung berechnet. Trennstelle rot gestrichelt in der Draufsicht, Steckung in Draufsicht, Profilschnitt, 3D-Ansicht, Stützrippen-Ausschnitt und Flächenservos (Kollisionsprüfung). Trifft ein Holmsteg die Hülse, erscheint ein Hinweis.
+
+### Steghöhen: Stützstoff an der Endleiste (2026-11-08)
+- Bei Schalenaufbau (Außenlage, Stützstoff, Innenlage) berechnet der Reiter, wo der Stützstoff an der Endleiste weggeschliffen werden muss, damit Ober- und Unterschale zusammenpassen. Neue Tabelle **„Stützstoff an der Endleiste“** in Höhenliste, Ausdruck und kopierter Liste, je Stelle ab Wurzel (Raster, Segmentstöße, außen), gemessen ab Endleiste (mit Spalte „+ Überstand“ bei Schalenüberstand an der Endleiste):
+  - **Schalen berühren sich, Schleifen ab** (Profilhöhe = 2 × ganze Schale; nur mit Innenlage),
+  - **Stützstoff trifft aufeinander** (Profilhöhe = 2 × (Außenlage + Stützstoff)),
+  - **Stützstoff ganz weg** (Profilhöhe = 2 × Außenlage).
+- In den **Schnitten in Spannweite** ist der Schleifbereich bis zur Endleiste rot hinterlegt, mit beschrifteten Linien an den drei Stellen.
+
+### Steghöhen: Ruderstege ab Endleiste, Schalenüberstand (2026-11-08)
+- Ruderstege haben in der Liste zusätzlich die Spalte **„ab Endleiste“** (Ansicht, Ausdruck, Liste kopieren).
+- Neue Felder **„Schalenüberstand Nase (mm)“** und **„Schalenüberstand Endleiste (mm)“** unter Steghöhen. Die Liste zeigt die Originalmaße ab Nase bzw. Endleiste und, wenn ein Überstand gesetzt ist, daneben jeweils eine Spalte „+ Überstand“ (Maß ab Schalenkante) – bei Stegen, Holmgurt und Scharnierlinie, in Ansicht, Ausdruck und kopierter Liste.
+
+### Steghöhen: Lage der Scharnierlinie in der Höhenliste (2026-11-08)
+- Höhenliste (Anzeige, „Liste kopieren“, Druckvorschau) hat einen eigenen Block **Scharnierlinie** (wie Holmgurt): je Station ab Wurzel Profiltiefe, Scharnier **ab Nase** und **ab Endleiste** (mm).
+- Rudersteg „an der Scharnierlinie“: neue Wahl **„Abstand angeben“** – gleich über die ganze Länge, **innen / außen** (eigener Wert außen), an jedem Segmentstoß oder **je Segmentgruppe innen/außen** (wie beim Holmgurt: Anzahl Gruppen, Gruppenende je Segment, Werte innen/außen je Gruppe; an der Gruppengrenze darf der Abstand springen, die Liste zeigt dort „Gruppe n innen“). Alte Projekte bleiben unverändert.
+
+### Drehachse: Quelle „Kontur drehen“ und Bahn ausdünnen (2026-11-07)
+- Neue Quelle **„Kontur drehen“** im Reiter Drehachse (Anregung: StyroFoamRobot). Die Seitenkontur wird direkt in der Seitenleiste gezeichnet: Punkt ziehen = verschieben, Rechtsklick = Punkt einfügen, Doppel- oder Mittelklick = Punkt löschen, mit Rasterfang. Vorlagen: Kegel, Kuppel, Figur.
+- **Drehschritte**: 0 = runder Drehkörper, sonst n-Kant (z. B. 6 = Sechskant). Die Flächen liegen bei 0°, 360/n° … – die automatische Winkelwahl trifft sie genau.
+- Geladene Modelle: **„Achse der Datei, die nach oben zeigt“** frei wählbar (+Z, +Y, +X, −Z, −Y, −X) statt nur „Z oben ja/nein“; alte Projekte werden übernommen.
+- Fix: Im Simulator des Reiters Drehachse sprang der Zeitregler beim Ziehen immer auf 0 zurück – Vor-/Zurückspulen funktioniert jetzt.
+- Zeitanzeige in allen 3D-Simulatoren (G-Code, Schneiden, Drehachse) jetzt als h:mm:ss statt Minuten:Sekunden (vorher z. B. „868:34“).
+- **Bahn ausdünnen: Toleranz (mm)**, Standard 0,05: Douglas-Peucker je Schnittbahn, deutlich weniger G1-Sätze (Beispiel: 1055 → 207 Zeilen) und ruhigerer Lauf auf GRBL.
+
+### Steghöhen: Gurtlage in der Liste, Druckvorschau (2026-11-07)
+- Die Höhenliste beginnt mit einer eigenen Tabelle **Holmgurt**, unabhängig von den Stegen: je Stelle ab Wurzel (Raster „Höhe alle … mm“, Segmentstöße, außen) Gurt von / Mitte / bis ab Nase in Profilrichtung, Gurtbreite und -dicke. Auch in „Liste kopieren“ und im Ausdruck.
+- Neu unter Ausgabe: **🔍 Druckvorschau…** zeigt die Liste als A4-Dokument; „Drucken / als PDF…“ öffnet den Systemdruckdialog (dort „Als PDF speichern“ bzw. „Microsoft Print to PDF“ wählen).
+- **Gurtlage angeben** (Holmgurt, ab 2 Segmenten): „Wurzel → außen gerade“, „an jedem Segmentstoß“ oder neu **„je Segmentgruppe innen/außen“**. Segmente lassen sich zu Gruppen zusammenfassen (Anzahl, „Gruppe endet bis Segment …“); je Gruppe Gurtmitte innen und außen, dazwischen im Grundriss gerade. An Gruppengrenzen darf die Lage springen; die Holmgurt-Liste zeigt dort beide Werte.
+- Fix: Bei einer Tragfläche mit nur einem Segment brach das Anlegen eines Stegs mit „Lage je Segmentstoß“ ab.
+
+### Fix: G-Code-Reiter folgt dem Segmentwechsel (2026-11-07)
+- War der G-Code geladen („G-Code laden…“) oder von Hand bearbeitet, blieben nach einem Wechsel von Segment oder Quelle Grafik und G-Code-Text beim alten Stand stehen, während die Beschriftung unter der Simulation schon das neue Segment nannte. Erst ein Neustart half. Jetzt wird beim Segment-/Quellenwechsel (Tragfläche, Negativschale, DXF-Segment, 3D-Modell-Segment) wie beim Tragflächenwechsel neu erzeugt.
+
+### Steghöhen: Stegbereich nach Segmenten (2026-11-07)
+- Je Steg (Holm- und Rudersteg) lässt sich bei mehreren Segmenten **„Ab Segment“** und **„Bis Segment“** wählen. Von/Bis folgen dann den Segmentgrenzen, auch wenn sich die Segmentbreiten im Tragflächendesign später ändern. Alternativ wie bisher frei in mm (Von/Bis/Länge); eine Eingabe dort löst die Segmentbindung.
+
+### Neuer Reiter „Drehachse“ — Schneiden mit Drehtisch (Spezial Module, 2026-11-07)
+- Die Maschine bleibt wie in allen anderen Modulen. Zusätzlich steht der Block auf einem **Drehtisch mit senkrechter Achse** (grblHAL A, B oder C). Je Tischwinkel schneidet der Draht die Silhouette des Teils (beide Portale gleich), fährt über den Block, der Tisch dreht weiter, dann folgt der nächste Schnitt. Das ist das Verfahren aus devFoam 3D. Mulden und Löcher, die aus keiner Richtung sichtbar sind, bleiben stehen.
+- **Teil:** STL/OBJ/STEP/IGES laden, aus dem Reiter 3D-Modell übernehmen oder einen Testkörper nehmen (Kabinenhaube, Drehkörper, Pyramide). Einstellbar sind Maßstab, Drehung und Versatz auf dem Tisch sowie die Sockelhöhe: Bis zu dieser Höhe bleibt der Block stehen und hält das Teil. Das Modell wird im Projekt gespeichert.
+- **Schnittwinkel:** automatisch nach der Geometrie (es wird jeweils der Winkel mit dem größten Materialabtrag gewählt; die Automatik hört auf, wenn nichts mehr abzutragen ist), gleichmäßig verteilt oder als eigene Liste. Angezeigt werden die Abweichung von der Idealform (konvexe Hülle je Schicht) und die Schnittdauer.
+- Rohling automatisch (Teil + Rand) oder mit eigenen Maßen; Abbrand, Schichtabstand, Anfahrweg und Sicherheitshöhe einstellbar.
+- **3D-Simulation als Hauptansicht** mit derselben Maschine wie im Reiter G-Code bzw. Schneiden: Boden, Nullpunkt, beide Portale mit Fahrwegen, Draht, Positionsanzeige, Warnungen, Ansichtswürfel und gewohnte Mausbedienung. Dazu kommen der Drehteller mit 0°-Marke und Tischachse sowie das Werkstück, das nach jedem Schnitt kleiner wird (Zielteil wahlweise durchscheinend, standardmäßig aus). Der Körper wird als glatte, geschlossene Hülle mit pixelgenauem Tiefentest gezeichnet (Tiefenpuffer, geglättete Kanten). Teller, Sockel und Werkstück verdecken sich in jeder Ansicht richtig; keine Stufen, kein Durchscheinen. Wiedergabe mit Tempo 1–100×.
+- **Fenster „Schnitte“** (aufklappbar, verschiebbar): Profil des gewählten Schnitts und Draufsicht mit allen Drahtrichtungen.
+- G-Code mit G0/G1; der Tisch dreht nur im Eilgang über dem Block. Das Programm hat einen eigenen Auftragskopf (Teil „Drehtisch · …“, Maschine mit Drehteller).
+- **Drehteller als Maschineneigenschaft:** Reiter Maschine → „Drehteller (5. Achse)“: Schalter „Maschine hat einen Drehteller“, Achsbuchstabe (A/B/C, mit Warnung bei Doppelbelegung), Tischmitte X und Tisch-Oberkante Y. Wird mit den Einstellungen gespeichert, nicht im Projekt. Ohne Drehteller sind der Reiter „Drehachse“ und die Quelle „Drehtisch“ ausgeblendet.
+- **Steuerung:** Mit Drehteller zeigen Positionsanzeige und Handfahrt (Reiter Maschine und Schneiden) eine fünfte Spalte „Drehteller · °“ mit ±-Tasten, „→0°“ (auf 0° fahren) und „=0°“ (aktuellen Winkel als 0° setzen).
+- **Reiter „Schneiden“:** neue Quelle „Drehtisch“. „An Schneiden übergeben“ im Reiter Drehachse wählt sie und übernimmt das Programm. Der 3D-Monitor zeigt Drehteller und Werkstück mit dem Winkel und Schnittstand der jeweiligen Programmzeile, in der Vorschau und beim echten Lauf. Vorschub-Modus, Heizung, Relais und Sicherheitshinweis gelten wie bei allen Quellen.
+- **Startsperre:** Benutzt ein Programm eine Achse, die die Steuerung nicht meldet (z. B. B bei einer 4-Achs-Firmware), wird der Schnitt mit klarer Meldung nicht gestartet.
+### Neue Reiter: Projektbibliothek, Bauanleitung, Laminierplan (2026-11-07)
+- **Projektbibliothek** (neben der Projektübersicht): Eigene Projekte lassen sich mit Name, Kategorie und Beschreibung auf diesem Computer ablegen. Jede Karte zeigt den Grundriss sowie Spannweite, Fläche und Streckung. Projekte lassen sich suchen, öffnen, überschreiben, bearbeiten, als .json exportieren und importieren. Mitgeliefert sind fünf Vorlagen: Segler 2 m, Nurflügel 1,2 m, Speed/Pylon 1 m, Trainer 1,6 m und ein Testflügel für den ersten Schnitt.
+- **Bauanleitung**: Die Anleitung entsteht automatisch aus dem Projekt, mit den Kapiteln Geometrie (Segmenttabelle), Styroporblöcke, Kerne schneiden, Negativschalen, Holm, Laminieren, Rippen und Gewicht. Jedes Kapitel lässt sich abschalten und bekommt auf Wunsch einen eigenen Hinweis und ein Bild. „Ansicht einfügen“ übernimmt die Zeichnung eines beliebigen Reiters, alternativ geht eine Bilddatei. Dazu kommen eigene Schritte. Die Vorschau zeigt das A4-Blatt; Ausgabe über „Drucken / als PDF“ oder als HTML.
+- **Laminierplan** (Menü Tragflächen): Der Lagenaufbau der Schale wird je Tragfläche festgelegt (Gewebe, Seite, Spannweiten- und Profilbereich, 0/90° oder ±45°, Anzahl). Daraus berechnet der Reiter:
+  - die Zuschnitte als Abwicklung der Profilseiten mit Zugabe,
+  - die Verschachtelung auf die Rollenbreite (Meter je Gewebe, Ausnutzung),
+  - Gewebe- und Harzmasse, Abreißgewebe, Vlies und Vakuumsack,
+  - einen Ablauf mit Uhrzeit gegen die Topfzeit (mit Warnung).
+
+### Flugsimulator: Kunstflug-Motormodell Sukhoi Su-26M (2026-11-07)
+- Neue eingebaute Maschine „Kunstflug-Motormodell Sukhoi Su-26M“ (Maßstab 1:3, 2,60 m Spannweite, rund 130 dm², etwa 8,8 kg bei 68 g/dm²) neben dem F3F-Segler.
+- Tief angesetzter Trapezflügel mit symmetrischem Profil, Sternmotorhaube mit Kabinenhaube, Spornradfahrwerk, Spinner und Propeller.
+- Kunstflugtaugliche Flugphysik: Schub etwa 1,8 × Gewicht, hohe Rollrate, starkes Höhen- und Seitenruder, mehr Seitenkraft für den Messerflug. Die Flächenbelastung ist einstellbar.
+- Der Propeller dreht sich passend zur Gasstellung (Leerlauf etwa 1800 U/min, Vollgas etwa 7000 U/min, kurzer Hoch- und Auslauf). Bei hoher Drehzahl erscheint eine halbdurchsichtige Propellerscheibe.
+- Motorgeräusch (synthetisch, Einzylinder-Zweitakter): Tonhöhe folgt der Drehzahl, mit Doppler-Effekt, leiser mit wachsender Entfernung zur Kamera. Schalter „Motorgeräusch“ und Lautstärke in der Seitenleiste. Gilt auch für eigene Flugzeuge mit Motor.
+
+### Ausrichtung an gerader Latte: nur vorne oder nur hinten (2026-11-07)
+- Negativschalendesign → „Ausrichtung an gerader Latte“: neue Auswahl „Gerade Linie an“ — vorne und hinten, nur vorne (Nase) oder nur hinten (Endleiste).
+- Die nicht gewählte Seite bleibt wie ohne Ausrichtung (proportionaler Formüberstand bzw. konstanter Schalenrand); dort wird kein Latten-Vorschnitt gefahren.
+
+### G-Code-Kopf mit Auftragsdaten, sprechender Dateiname (2026-11-07)
+- Jedes erzeugte Programm beginnt mit einem Kopf: Projektname, Teil/Segment, Seite (links/rechts), Maschinenname mit Portalbreite und Blocklage (Abstand zum Portal oder mittig).
+- Beim Herunterladen setzt sich der Dateiname aus Projekt, Segment und Seite zusammen, z. B. `Projekt_tragflaeche_seg2_links.gcode`.
+
 ## [2.12] — 2026-11-06
 
 ### Holmausschnitte farbig und nummeriert (2026-11-06)

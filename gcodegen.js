@@ -590,8 +590,10 @@
       };
       em('; --- ' + (latte ? T('Schalenrand an gerader Latte (innen vorne ') + eRF.toFixed(1) + T(' / hinten ') + eRR.toFixed(1) + T(', außen vorne ') + eTF.toFixed(1) + T(' / hinten ') + eTR.toFixed(1) + ' mm)'
         : T('Überstand Schalenrand (konstant ') + se + ' mm)') + T(' — vor dem Profilschnitt') + ' ---');
-      edgeCut(rear, T('hinterer Schalenrand'));
-      edgeCut(front, T('vorderer Schalenrand'));
+      // Latte nur vorne/hinten: die andere Seite nur mit konstantem Schalenrand.
+      const se0 = state.cfg.negShellEdge || 0;
+      if (!latte || P.root.geom.latteR || se0 > 0) edgeCut(rear, T('hinterer Schalenrand'));
+      if (!latte || P.root.geom.latteF || se0 > 0) edgeCut(front, T('vorderer Schalenrand'));
       em(`G0 ${ax.x}${f(0)} ${ax.y}${f(safeY)} ${ax.u}${f(0)} ${ax.v}${f(safeY)} ; über den Block zurück`);
       em(`G0 ${ax.x}${f(0)} ${ax.y}${f(0)} ${ax.u}${f(0)} ${ax.v}${f(0)} ; zurück auf den Nullpunkt`);
     }
@@ -763,7 +765,25 @@
    * Letzter gemeinsamer Schritt aller G-Code-Quellen (autoGen() hier und
    * program() in app.js) — deshalb sitzt das Wasserzeichen hier. */
   function applyFeedMode(text) {
-    return watermark(applyExtPower(applyRelay(state.cfg.feedMode === 'g93' ? toInverseTime(text) : text)));
+    return watermark(jobHeader(applyExtPower(applyRelay(state.cfg.feedMode === 'g93' ? toInverseTime(text) : text))));
+  }
+  /* Auftragskopf in JEDEM Programm: Projekt, Teil/Segment, Seite, Maschine,
+   * Blocklage zum Portal (Abstand oder mittig). */
+  function jobHeader(text) {
+    if (!text || text.indexOf('; ==== ' + T('Auftrag')) >= 0) return text;
+    const c = state.cfg, src = c.gcodeSource;
+    let teil = '';
+    try { teil = App.cutContextLabel ? App.cutContextLabel(src) : ''; } catch (e) {}
+    const wingSrc = !src || src === 'wing' || src === 'neg' || src === 'core';
+    const lines = ['; ==== ' + T('Auftrag') + ' ===='];
+    lines.push('; ' + T('Projekt') + ': ' + ((state.projectName || '').trim() || '—'));
+    if (teil) lines.push('; ' + T('Teil') + ': ' + teil);
+    if (wingSrc) lines.push('; ' + T('Seite') + ': ' + T(c.side === 'left' ? 'links' : 'rechts'));
+    lines.push('; ' + T('Maschine') + ': ' + (App.machineName || '—') + (c.machineWidth ? ' (' + T('Portalbreite') + ' ' + c.machineWidth + ' mm)' : ''));
+    lines.push('; ' + T('Blocklage') + ': ' + (c.blockZCenter ? T('mittig zwischen den Portalen')
+      : T('Abstand zum Portal') + ' ' + (+c.blockZ || 0) + ' mm (' + T(c.side === 'left' ? 'rechtes Portal' : 'linkes Portal') + ')'));
+    lines.push(';');
+    return lines.join('\n') + '\n' + text;
   }
   // Werkstoff mit externem Netzteil: Einstellvorgabe (V/A) als Kopfkommentar in
   // JEDES Programm — der Heizstromausgang schaltet dann nur das Relais.

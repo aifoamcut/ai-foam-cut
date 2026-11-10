@@ -76,6 +76,10 @@
       else if (name === 'ausl' && window.Auslegung) Auslegung.show();
       else if (name === 'holm' && window.Holm) Holm.show();
     else if (name === 'stegh' && window.StegHoehen) StegHoehen.show();
+    else if (name === 'bib' && window.Bibliothek) Bibliothek.show();
+    else if (name === 'bau' && window.Bauanleitung) Bauanleitung.show();
+    else if (name === 'lam' && window.Laminat) Laminat.show();
+    else if (name === 'rot' && window.Drehachse) Drehachse.show();
     else if (name === 'flz' && window.Flugzeug) Flugzeug.show();
     else if (name === 'fsim' && window.Flugsim) Flugsim.show();
     else if (name === 'servo' && window.Servos) Servos.show();
@@ -112,6 +116,10 @@
     else if (name === 'ausl' && window.Auslegung) Auslegung.show();
     else if (name === 'holm' && window.Holm) Holm.show();
     else if (name === 'stegh' && window.StegHoehen) StegHoehen.show();
+    else if (name === 'bib' && window.Bibliothek) Bibliothek.show();
+    else if (name === 'bau' && window.Bauanleitung) Bauanleitung.show();
+    else if (name === 'lam' && window.Laminat) Laminat.show();
+    else if (name === 'rot' && window.Drehachse) Drehachse.show();
     else if (name === 'flz' && window.Flugzeug) Flugzeug.show();
     else if (name === 'fsim' && window.Flugsim) Flugsim.show();
     else if (name === 'servo' && window.Servos) Servos.show();
@@ -136,6 +144,14 @@
       else if (state.cfg.gcodeSource === 'schrift' && window.Schrift) nm = Schrift.fileBase() + '.gcode';
       else if (state.cfg.gcodeSource === 'ausschnitt' && window.Ausschnitt) nm = Ausschnitt.fileBase() + '.gcode';
       else nm = (wt || 'tragflaeche') + '_seg' + (activeIdx() + 1) + '.gcode';
+      // Dateiname: Projekt _ Segment _ Seite (Seite nur bei Tragfläche/Negativschale).
+      { const pj = (state.projectName || '').trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_');
+        const src = state.cfg.gcodeSource;
+        const wingSrc = !src || src === 'wing' || src === 'neg' || src === 'core';
+        let base = nm.replace(/\.gcode$/, '');
+        if (wingSrc) base += '_' + (state.cfg.side === 'left' ? 'links' : 'rechts');
+        if (pj && base.indexOf(pj) !== 0) base = pj + '_' + base;
+        nm = base + '.gcode'; }
       // Vor dem Speichern Achsnamen abfragen (links/rechts, horizontal/vertikal).
       App.exportGcodeAxes(nm, () => (state.lastGcode && state.lastGcode.text) || '');
     };

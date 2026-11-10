@@ -63,6 +63,11 @@
     border-radius:6px;padding:6px 11px;cursor:pointer;font-size:12px}
   button:hover{border-color:var(--accent);color:#fff}
   button.primary{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+  /* Maschinenlauf: Start grün, Stopp/Abbruch rot (deutlich erkennbar). Gesperrt bleibt neutral. */
+  button.btn-go:not(:disabled){background:#2e9e4f;border-color:#2e9e4f;color:#fff;font-weight:700}
+  button.btn-go:not(:disabled):hover{background:#37b85c}
+  button.btn-stop:not(:disabled){background:#c62f2f;border-color:#c62f2f;color:#fff;font-weight:700}
+  button.btn-stop:not(:disabled):hover{background:#de3b3b}
   button.primary:hover{filter:brightness(1.1)}
   #side{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;overflow-anchor:none;padding:10px}
   .grp{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;overflow:hidden}
@@ -639,6 +644,8 @@
          tabmenu.js baut die Leiste beim Start nach der Nutzer-Gliederung um
          (Einstellungen → Menüleiste). -->
     <button data-view="material" class="active">Projektübersicht und Werkstoffzuordnung</button>
+    <button data-view="bib">Projektbibliothek</button>
+    <button data-view="bau">Bauanleitung</button>
     <div class="tab-more" data-group="Aero">
       <button type="button" class="tab-more-btn">Aero<span class="tab-more-ch">▾</span></button>
       <div class="tab-more-list">
@@ -654,6 +661,7 @@
         <button data-view="form">Formenbau</button>
         <button data-view="stegh">Steghöhen</button>
         <button data-view="servo">Flächenservos</button>
+        <button data-view="lam">Laminierplan</button>
       </div>
     </div>
     <div class="tab-more" data-group="Rumpf">
@@ -685,6 +693,7 @@
         <button data-view="schrift">Schriften</button>
         <button data-view="decal">Decals</button>
         <button data-view="fraese">Fräse</button>
+        <button data-view="rot">Drehachse</button>
       </div>
     </div>
     <button data-view="cad">CAD-Bearbeitung</button>
@@ -1202,6 +1211,12 @@
       </div>
       <!-- Reiter „Steghöhen" (stegh.js): Holm- und Ruderstege aus dem Tragflächendesign -->
       <div class="view" id="steghView"></div>
+      <!-- Reiter „Projektbibliothek“ (bibliothek.js), „Bauanleitung“ (bauanleitung.js), „Laminierplan“ (laminat.js) -->
+      <div class="view" id="bibView"></div>
+      <div class="view" id="bauView"></div>
+      <div class="view" id="lamView"></div>
+      <!-- Reiter „Drehachse“ (drehachse.js): Heißdraht mit zusätzlicher Drehachse -->
+      <div class="view" id="rotView"></div>
       <!-- Reiter „Flugzeug gesamt" (flugzeug.js): ganzes Modell in 3D, Farben, Decals, flow5-Netz -->
       <div class="view" id="flzView"></div>
       <!-- Reiter „Flugsimulator" (flugsim.js): mit dem Flugzeug aus „Flugzeug gesamt" fliegen -->
@@ -1314,11 +1329,11 @@
               </div>
               <div id="frProgView" class="frprog" data-empty="Übernommenes Programm erscheint hier …"></div>
               <div class="mrow" style="margin-bottom:9px">
-                <button id="frStart" disabled>Start</button>
+                <button class="btn-go" id="frStart" disabled>Start</button>
                 <button id="frPause" disabled>Pause</button>
                 <button class="primary" id="frResume" style="display:none">▶ Fortsetzen</button>
-                <button id="frStop" disabled>Stopp</button>
-                <button id="frAbort" disabled>⏹ Abbruch</button>
+                <button class="btn-stop" id="frStop" disabled>Stopp</button>
+                <button class="btn-stop" id="frAbort" disabled>⏹ Abbruch</button>
                 <button class="primary" id="frGoZero" style="display:none">⌂ Fahren auf Nullpunkt</button>
                 <div class="sp"></div>
                 <span id="frFeedText" class="hint" title="Aktuelle Ist-Geschwindigkeit (Vorschub)">Geschwindigkeit: — mm/min</span>
@@ -1500,6 +1515,7 @@
                     <option value="dxf">DXF-Formen</option>
                     <option value="model">3D-Modell</option>
                     <option value="plate">3D-Modell Platte (mehrere)</option>
+                    <option value="rot">Drehtisch</option>
                     <option value="block">Block</option>
                     <option value="guillotine">Guillotine</option>
                     <option value="blockH">Block horizontal</option>
@@ -1516,10 +1532,10 @@
               </div>
               <div id="mProgView" data-empty="Übernommenes Programm erscheint hier …"></div>
               <div class="mrow" style="margin-bottom:9px">
-                <button id="mStart" disabled>Start</button>
+                <button class="btn-go" id="mStart" disabled>Start</button>
                 <button id="mPause" disabled>Pause</button>
                 <button class="primary" id="mResume" style="display:none">▶ Fortsetzen</button>
-                <button id="mAbort" disabled>⏹ Schnittabbruch</button>
+                <button class="btn-stop" id="mAbort" disabled>⏹ Schnittabbruch</button>
                 <button class="primary" id="mGoZero" style="display:none">⌂ Fahren auf Nullpunkt</button>
                 <div class="sp"></div>
                 <span id="mFeedText" class="hint" title="Aktuelle Ist-Geschwindigkeit (Vorschub)">Geschwindigkeit: — mm/min</span>
@@ -1770,7 +1786,7 @@
   </div>
   <div class="body"><canvas id="cSeg3d"></canvas></div>
 </div>
-<script src="i18n.js?v=20261106nlt"></script>
+<script src="i18n.js?v=20261110neil"></script>
 <script src="theme.js?v=20261017c"></script>
 <script src="safety.js?v=20261022tr2"></script>
 <script src="airfoil.js?v=20261010despike"></script>
@@ -1784,44 +1800,48 @@
 <script src="pc2.js?v=20261025strak2"></script>
 <script src="dxf.js?v=20261004gerade2"></script>
 <script src="hotwire.js?v=20261004gerade2"></script>
-<script src="hotwire_gcode.js?v=20261106top2"></script>
+<script src="hotwire_gcode.js?v=20261110nose"></script>
 <script src="sweeprot.js?v=20261004gerade2"></script>
 <script src="earcut.js?v=20261004gerade2"></script>
-<script src="grbl.js?v=20261022tr2"></script>
+<script src="grbl.js?v=20261107tbl"></script>
 <script src="viewcube.js?v=20261005home"></script>
-<script src="sim3d.js?v=20261008trk2"></script>
+<script src="sim3d.js?v=20261107hms"></script>
 <script src="simmodel.js?v=20261004gerade2"></script>
 <script src="occt-import-js.js?v=20261018asm"></script>
 <script src="occt_wasm.js?v=20261018asm"></script>
 <script src="model3d.js?v=20261031ecken2"></script>
 <script src="model3d_gcode.js?v=20261025wn"></script>
-<script src="core.js?v=20261104b"></script>
+<script src="core.js?v=20261107tbl"></script>
 <script src="cad.js?v=20261104b"></script>
 <script src="cadpdf.js?v=20261023pv2"></script>
 <script src="gcode.js?v=20261105lat1"></script>
-<script src="spars.js?v=20261106appr5pt"></script>
+<script src="spars.js?v=20261110shortest"></script>
 <script src="ribs.js?v=20261101rst1"></script>
 <script src="dxfshapes.js?v=20261031un1"></script>
 <script src="wingimport.js?v=20261010xflm"></script>
-<script src="filesys.js?v=20261104"></script>
+<script src="filesys.js?v=20261107tbl"></script>
 <script src="stlpreview.js?v=20261027mf3"></script>
 <script src="wingexport.js?v=20261004gerade2"></script>
 <script src="gmfc.js?v=20261101rumpf1"></script>
-<script src="render.js?v=20261106nlhp"></script>
+<script src="render.js?v=20261107a"></script>
 <script src="measure2d.js?v=20261011dat"></script>
-<script src="sidebar.js?v=20261106nlt"></script>
-<script src="pathpreview.js?v=20261105lat1"></script>
-<script src="gcodegen.js?v=20261106ord"></script>
-<script src="cutpanel.js?v=20261025wn"></script>
+<script src="sidebar.js?v=20261107gcl"></script>
+<script src="pathpreview.js?v=20261107a"></script>
+<script src="gcodegen.js?v=20261107a"></script>
+<script src="cutpanel.js?v=20261107tbl"></script>
 <script src="stege.js?v=20261029nh"></script>
 <script src="kernteile.js?v=20261025wn"></script>
 <script src="negholme.js?v=20261029nh4"></script>
 <script src="nasenleiste.js?v=20261106nl2"></script>
-<script src="neglatte.js?v=20261105lat1"></script>
+<script src="neglatte.js?v=20261107a"></script>
 <script src="neg3d.js?v=20261105n3d1"></script>
-<script src="stegh.js?v=20261105rip5"></script>
-<script src="stuetzrippen.js?v=20261105rip5"></script>
-<script src="servos.js?v=20261104orth1"></script>
+<script src="stegh.js?v=20261108spl1"></script>
+<script src="bibliothek.js?v=20261107a"></script>
+<script src="bauanleitung.js?v=20261107c"></script>
+<script src="laminat.js?v=20261107a"></script>
+<script src="drehachse.js?v=20261107hms"></script>
+<script src="stuetzrippen.js?v=20261108spl1"></script>
+<script src="servos.js?v=20261108spl1"></script>
 <script src="pc2wing.js?v=20261010tol"></script>
 <script src="stepexport.js?v=20261010prof"></script>
 <script src="formenbau.js?v=20261027vm2"></script>
@@ -1847,7 +1867,7 @@
 <script src="decals_design.js?v=20261004gerade2"></script>
 <script src="decals.js?v=20261105flz1"></script>
 <script src="flugzeug.js?v=20261105fsim1"></script>
-<script src="flugsim.js?v=20261105fsim12"></script>
+<script src="flugsim.js?v=20261107fsim14"></script>
 <script src="neuralfoil_data.js?v=20261004gerade2"></script>
 <script src="neuralfoil.js?v=20261008align3"></script>
 <script src="profpolare.js?v=20261012re"></script>
@@ -1855,14 +1875,14 @@
 <script src="kfm.js?v=20261008align"></script>
 <script src="foildb.js?v=20261101a"></script>
 <script src="compute.js?v=20261106nl"></script>
-<script src="wings.js?v=20261106nl"></script>
+<script src="wings.js?v=20261107bib"></script>
 <script src="overview_bg.js?v=20261004gerade2"></script>
 <script src="overview.js?v=20261023mf"></script>
 <script src="ptedit.js?v=20261011dat"></script>
-<script src="profedit.js?v=20261025strak4"></script>
+<script src="profedit.js?v=20261110name"></script>
 <script src="tabmenu.js?v=20261019tm1"></script>
-<script src="undo.js?v=20261105fsim6"></script>
-<script src="app.js?v=20261105fsim1"></script>
+<script src="undo.js?v=20261107rot"></script>
+<script src="app.js?v=20261107rot"></script>
 </body>
 </html>
 

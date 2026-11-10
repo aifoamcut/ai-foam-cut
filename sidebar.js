@@ -1428,6 +1428,15 @@
       hint(body, src === 'neg' ? 'Blockhöhe im Reiter „Negativschalendesign" (Gruppe „Negativschale").' : 'Blockhöhe im Reiter „Kerndesign" (Gruppe „Blockgeometrie").');
   }
 
+  // Segment-/Quellenwechsel im Reiter „G-Code": eine geladene oder von Hand
+  // bearbeitete Datei gehört zum alten Segment -> Sperre aufheben und neu erzeugen
+  // (wie afterWingChange in wings.js). Sonst blieben Grafik und G-Code stehen,
+  // während die Beschriftung schon das neue Segment nennt.
+  function releaseGcodeLock() {
+    if (!state.gcodeEdited) return;
+    state.gcodeEdited = false; state.lastGcode = null;
+    if (App.setGcodeEditMode) { try { App.setGcodeEditMode(false); } catch (e) {} }
+  }
   function segmentSelectRow() {
     const r = document.createElement('div'); r.className = 'row';
     const l = document.createElement('label'); l.textContent = 'Segment';
@@ -1436,7 +1445,7 @@
     // Keine Option „Alle": G-Code/Negativ beziehen sich immer auf genau ein
     // Segment. Intern 'all' (= keine Karte offen) wird als Segment 1 angezeigt.
     sel.value = String(App.activeIdx());
-    sel.onchange = () => { state.activeSeg = parseInt(sel.value, 10); buildSidebar(); render(); };
+    sel.onchange = () => { state.activeSeg = parseInt(sel.value, 10); releaseGcodeLock(); buildSidebar(); render(); };
     r.appendChild(l); r.appendChild(sel); return r;
   }
 
@@ -2016,7 +2025,7 @@
     if (!window.Ausschnitt && state.cfg.gcodeSource === 'ausschnitt') state.cfg.gcodeSource = 'core';
     selectRow(pv.body, 'G-Code-Quelle', srcOpts,
       () => state.cfg.gcodeSource,
-      v => { state.cfg.gcodeSource = v; if (v !== 'model') state.cfg.gcodeSourceLast = v; buildSidebar(); render(); },
+      v => { state.cfg.gcodeSource = v; if (v !== 'model') state.cfg.gcodeSourceLast = v; releaseGcodeLock(); buildSidebar(); render(); },
       App.autoGen
         ? 'Woraus der G-Code erzeugt wird: aus dem Kerndesigner (Profil-/Kernschnitt), '
           + 'aus dem Negativschalendesign (Formhälften-Kavität), aus den DXF-Formen (INNEN/AUSSEN) '
@@ -2052,7 +2061,7 @@
       const opts = [];
       for (let i = 0; i < nseg; i++) opts.push([String(i), T('Segment ') + (i + 1) + ' / ' + nseg]);
       selectRow(pv.body, 'Modell-Segment', opts, () => String(cc.seg),
-        v => { cc.seg = +v; render(); if (window.Model3D) Model3D.refresh(); },
+        v => { cc.seg = +v; releaseGcodeLock(); render(); if (window.Model3D) Model3D.refresh(); },
         'Wählt das Segment des 3D-Modells, dessen Schnitt erzeugt wird.');
     } else if (state.cfg.gcodeSource === 'dxf' && App.dxfEnsureModel) {
       // DXF-Formen: eigene Segmentkette (state.dxf.segs), nicht die Tragflächen-Segmente.
@@ -2064,7 +2073,7 @@
         opts.push([String(i), T('Segment ') + (i + 1) + ' / ' + nseg + '  ·  ' + (ri ? ri.layer : '—') + ' → ' + (ro ? ro.layer : '—')]);
       }
       selectRow(pv.body, 'DXF-Segment', opts, () => String(d.activeSeg || 0),
-        v => { App.dxfSetActive(+v); buildSidebar(); if (App.renderDxf) App.renderDxf(); render(); },
+        v => { App.dxfSetActive(+v); releaseGcodeLock(); buildSidebar(); if (App.renderDxf) App.renderDxf(); render(); },
         'Wählt das DXF-Formen-Segment, dessen Schnitt erzeugt wird (gleiche Auswahl wie im Reiter „DXF-Formen").');
     } else if (state.cfg.gcodeSource === 'schrift') {
       hint(pv.body, 'Text, Schriftart, Verbindung und Block stellt der Reiter „Schriften" ein.');
@@ -2262,6 +2271,10 @@
     // --- Reiter „Holmauslegung" (holm, optionales Feature) ---------------
     if (App.holmSidebar) App.holmSidebar(side);
     if (App.stegHSidebar) App.stegHSidebar(side);   // Reiter „Steghöhen“
+    if (App.bibSidebar) App.bibSidebar(side);       // Reiter „Projektbibliothek“
+    if (App.bauSidebar) App.bauSidebar(side);       // Reiter „Bauanleitung“
+    if (App.lamSidebar) App.lamSidebar(side);       // Reiter „Laminierplan“
+    if (App.rotSidebar) App.rotSidebar(side);       // Reiter „Drehachse“
     if (App.servoSidebar) App.servoSidebar(side);   // Reiter „Flächenservos“
 
     // --- Reiter „Profildatenbank" (foildb, optionales Feature) ------------
@@ -2473,6 +2486,26 @@
     const mc = grp('Maschinengeometrie', true, machineTab());
     numRow(mc.body, 'Turmabstand (mm)', () => state.cfg.machineWidth, v => state.cfg.machineWidth = v);
     side.appendChild(mc.g);
+
+    // Drehteller als 5. Achse (Reiter „Drehachse", Quelle „Drehtisch" im Reiter „Schneiden")
+    if (window.Drehachse) {
+      const dt = grp('Drehteller (5. Achse)', true, machineTab());
+      const tblChanged = () => { if (App.applyTableUi) App.applyTableUi(); if (window.GrblPanel && GrblPanel.refreshAxes) GrblPanel.refreshAxes(); App.buildSidebar(); };
+      boolRow(dt.body, 'Maschine hat einen Drehteller', () => !!state.cfg.tblOn, v => { state.cfg.tblOn = v; tblChanged(); },
+        'Drehteller mit senkrechter Achse unter dem Block. Eingeschaltet erscheinen der Reiter „Drehachse“, die Quelle „Drehtisch“ im Reiter „Schneiden“ und eine fünfte Spalte in Positionsanzeige und Handfahrt. Die Steuerung muss die Achse kennen (grblHAL mit 5 Achsen).');
+      if (state.cfg.tblOn) {
+        selectRow(dt.body, 'Achsbuchstabe', [['A', 'A'], ['B', 'B'], ['C', 'C']], () => state.cfg.tblAxis || 'B', v => { state.cfg.tblAxis = v; tblChanged(); },
+          'Achse des Drehtellers in der Steuerung. Darf keiner der vier Schneideachsen entsprechen.');
+        if ([state.cfg.axX, state.cfg.axY, state.cfg.axU, state.cfg.axV].indexOf(state.cfg.tblAxis || 'B') >= 0)
+          warn(dt.body, 'Der Achsbuchstabe des Drehtellers ist schon einer Schneideachse zugeordnet — bitte einen anderen wählen.');
+        numRow(dt.body, 'Tischmitte bei X (mm)', () => state.cfg.tblX, v => { state.cfg.tblX = v; if (window.Drehachse) Drehachse.refresh(); },
+          { hint: 'Abstand der Drehachse vom Maschinennullpunkt in X (Sehnenrichtung).' });
+        numRow(dt.body, 'Tisch-Oberkante Y (mm)', () => state.cfg.tblY, v => { state.cfg.tblY = v; if (window.Drehachse) Drehachse.refresh(); },
+          { hint: 'Höhe der Telleroberfläche über dem Maschinennullpunkt (Y0).' });
+        hint(dt.body, 'Die Tischmitte liegt quer immer mittig zwischen den Portalen. In der Steuerung für die Tellerachse Schritte je Grad, Höchstgeschwindigkeit (°/min) und Beschleunigung einstellen.');
+      }
+      side.appendChild(dt.g);
+    }
 
     if (App.sidebarMachine) App.sidebarMachine(side, 'feedmode');   // Vorschub-Modus G94/G93 — cutpanel.js
     if (App.sidebarMachine) App.sidebarMachine(side, 'relay');      // Schaltausgang/Relais parallel zur Heizung — cutpanel.js

@@ -2597,7 +2597,11 @@
     // Ausrichtung an gerader Latte (neglatte.js): Schalenrand je Rippe auf der Latte,
     // Schnittverlängerung um „Abstand" darüber hinaus — überschreibt alles obige.
     const la = at && App.negLatteEdges && App.negLatteEdges(at.idx, at.rib);
-    if (la) Object.assign(base, { ovF: la.f + la.clear, ovR: la.r + la.clear, edgeF: la.f, edgeR: la.r, latte: true });
+    if (la) {   // nur die gewählte(n) Seite(n) — die andere bleibt wie ohne Latte
+      if (la.sf) Object.assign(base, { ovF: la.f + la.clear, edgeF: la.f, latteF: true });
+      if (la.sr) Object.assign(base, { ovR: la.r + la.clear, edgeR: la.r, latteR: true });
+      base.latte = true;
+    }
     return Object.assign({}, geom, base);
   }
   // Schalenrand-Vorschnitte an? (konstanter Rand > 0 oder Latten-Ausrichtung)
@@ -2958,17 +2962,19 @@
     const latte = !!root.geom.latte && !(stegeOn && state.cfg.negStegeOnly);
     if ((se > 0 || latte) && !direct) {
       ctx.lineWidth = 1.4;
+      // Latte nur vorne/hinten: die andere Seite nur mit konstantem Schalenrand.
+      const dF = !latte || root.geom.latteF || se > 0, dR = !latte || root.geom.latteR || se > 0;
       if (shR) {   // innen (Wurzel)
         ctx.strokeStyle = App.PAL.shellEdge || '#c78bff';
         ctx.setLineDash(dashFor('shellEdge', [4, 3]));
-        poly(ctx, V, [{ x: root.xL - root.geom.edgeF, y: mat.yBot }, { x: root.xL - root.geom.edgeF, y: mat.yTop }], false); ctx.stroke();
-        poly(ctx, V, [{ x: root.xT + root.geom.edgeR, y: mat.yBot }, { x: root.xT + root.geom.edgeR, y: mat.yTop }], false); ctx.stroke();
+        if (dF) { poly(ctx, V, [{ x: root.xL - root.geom.edgeF, y: mat.yBot }, { x: root.xL - root.geom.edgeF, y: mat.yTop }], false); ctx.stroke(); }
+        if (dR) { poly(ctx, V, [{ x: root.xT + root.geom.edgeR, y: mat.yBot }, { x: root.xT + root.geom.edgeR, y: mat.yTop }], false); ctx.stroke(); }
       }
       if (shT) {   // außen (Rand)
         ctx.strokeStyle = App.PAL.shellEdgeOuter || '#c78bff';
         ctx.setLineDash(dashFor('shellEdgeOuter', [2, 4]));
-        poly(ctx, V, [{ x: tip.xL - tip.geom.edgeF, y: mat.yBot }, { x: tip.xL - tip.geom.edgeF, y: mat.yTop }], false); ctx.stroke();
-        poly(ctx, V, [{ x: tip.xT + tip.geom.edgeR, y: mat.yBot }, { x: tip.xT + tip.geom.edgeR, y: mat.yTop }], false); ctx.stroke();
+        if (dF) { poly(ctx, V, [{ x: tip.xL - tip.geom.edgeF, y: mat.yBot }, { x: tip.xL - tip.geom.edgeF, y: mat.yTop }], false); ctx.stroke(); }
+        if (dR) { poly(ctx, V, [{ x: tip.xT + tip.geom.edgeR, y: mat.yBot }, { x: tip.xT + tip.geom.edgeR, y: mat.yTop }], false); ctx.stroke(); }
       }
       ctx.setLineDash([]);
     }

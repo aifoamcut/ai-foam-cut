@@ -9,7 +9,7 @@
   const App = (window.App = window.App || {});
   if (!App.StegApi) return;
   const { state } = App;
-  const { capFace, cfg, geo, frame, section, capCenter, stkCenter, capAt, insetOf, shellOf, layA, webOf, allStege, stkData, ruderAt, secOne, profOf, f1, fl1, clamp } = App.StegApi;
+  const { stkAll, capFace, cfg, geo, frame, section, capCenter, stkCenter, capAt, insetOf, shellOf, layA, webOf, allStege, stkData, ruderAt, secOne, profOf, f1, fl1, clamp } = App.StegApi;
   const T = s => (window.I18N ? window.I18N.t(s) : s);
   let side = null, boxes = [], win = null, cv = null, list = null, posPct = [], cards = [], openParts = {};
   const isOpen = () => !!win && state.activeTab === 'servo';
@@ -62,8 +62,7 @@
     allStege(G, c).forEach(d => {
       if (d.len > 0 && d.path.some(p => Math.abs(p.z - z) <= dz / 2 && Math.abs(p.x - xc) < dx / 2 + webOf(d.st, d.kind) / 2)) warn.push(T('Trifft') + ' ' + d.st.name);
     });
-    const S = stkData(G, c);
-    if (S && S.cy != null && z - dz / 2 < S.len && Math.abs(xc - stkCenter(G, c, clamp(z, 0, S.len))) < dx / 2 + S.oW / 2) warn.push(T('Trifft die Steckung.'));
+    if (stkAll(G, c).some(S => S.cy != null && z - dz / 2 < S.len && z + dz / 2 > S.z0 && Math.abs(xc - S.cx(clamp(z, S.z0, S.len))) < dx / 2 + S.oW / 2)) warn.push(T('Trifft die Steckung.'));
     return R;
   }
   // Anlenkung als Viergelenk in der Profilebene: Welle – Hebelloch – Gestänge (feste Länge) – Hornloch – Scharnier.
@@ -342,7 +341,7 @@
     g.setLineDash([9, 4]); line(Z.map(z => { const f = frame(G, z); return [z, f.le + f.c * (1 - f.hp / 100)]; })); g.strokeStyle = '#7ee0a0'; g.lineWidth = 1.3; g.stroke(); g.setLineDash([]);
     allStege(G, c).forEach(d => { if (d.len > 0) { line(d.path.map(p => [p.z, p.x])); g.strokeStyle = d.kind === 'holm' ? '#5aa9ff' : '#ffa94d'; g.lineWidth = Math.max(1.5, webOf(d.st, d.kind) * s); g.stroke(); } });
     const S = stkData(G, c);
-    if (S && S.len > 0 && S.oW > 0) { const ZZ = [0, S.len]; line(ZZ.map(z => [z, stkCenter(G, c, z) - S.oW / 2]).concat(ZZ.slice().reverse().map(z => [z, stkCenter(G, c, z) + S.oW / 2])), true); g.fillStyle = 'rgba(255,240,106,.28)'; g.fill(); g.strokeStyle = '#fff06a'; g.lineWidth = 1; g.stroke(); }
+    stkAll(G, c).forEach(S => { if (S.len > S.z0 && S.oW > 0) { const ZZ = [S.z0, S.len]; line(ZZ.map(z => [z, S.cx(z) - S.oW / 2]).concat(ZZ.slice().reverse().map(z => [z, S.cx(z) + S.oW / 2])), true); g.fillStyle = 'rgba(255,240,106,.28)'; g.fill(); g.strokeStyle = '#fff06a'; g.lineWidth = 1; g.stroke(); } });
     srvList(c).forEach((sv, i) => {
       const R = srvCalc(G, c, sv), col = R.warn.length ? '#ff6b6b' : '#5fd8e8';
       line([[R.z - R.dz / 2, R.xc - R.dx / 2], [R.z + R.dz / 2, R.xc - R.dx / 2], [R.z + R.dz / 2, R.xc + R.dx / 2], [R.z - R.dz / 2, R.xc + R.dx / 2]], true);
@@ -386,9 +385,8 @@
       const w = webOf(d.st, d.kind) / 2; webs.push(shut([[a.x - w, a.top], [a.x + w, a.top], [a.x + w, a.bot], [a.x - w, a.bot]]));
     });
     add('STEGE', 5, webs);
-    const S = stkData(G, c);
-    if (S && S.cy != null && z <= S.len + 1e-6 && S.oH > 0) {
-      const y = S.cy + z * S.tan, cm = stkCenter(G, c, z), ring = (w, h) => {
+    for (const S of stkAll(G, c)) if (S.cy != null && z >= S.z0 - 1e-6 && z <= S.len + 1e-6 && S.oH > 0) {
+      const y = S.cy + z * S.tan, cm = S.cx(z), ring = (w, h) => {
         if (S.round) { const P = []; for (let k = 0; k < 48; k++) P.push([cm + w / 2 * Math.cos(k * Math.PI / 24), y + w / 2 * Math.sin(k * Math.PI / 24)]); return shut(P); }
         return shut([[cm - w / 2, y + h / 2], [cm + w / 2, y + h / 2], [cm + w / 2, y - h / 2], [cm - w / 2, y - h / 2]]);
       };

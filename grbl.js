@@ -324,7 +324,7 @@
 
   // ---------- Beschreibungen für das $$-Fenster -------------------------
   // Slots 0/1 = XY-Portal (z=0, „links"), 2/3 = UZ-Portal (z=machineWidth, „rechts").
-  const TOWER = ['Portal links · horiz.', 'Portal links · vert.', 'Portal rechts · horiz.', 'Portal rechts · vert.'];
+  const TOWER = ['Portal links · horiz.', 'Portal links · vert.', 'Portal rechts · horiz.', 'Portal rechts · vert.', 'Drehteller · °'];
   const DESC = {
     '0': 'Schrittimpuls, µs', '1': 'Schritt-Idle-Verzögerung, ms',
     '2': 'Schrittport-Invert-Maske', '3': 'Richtungsport-Invert-Maske',
@@ -823,6 +823,14 @@
       attachJog(plus, [ax.letter], +1, stepSel, feedSel);
       attachJog(minus, [ax.letter], -1, stepSel, feedSel);
       col.appendChild(plus); col.appendChild(minus);
+      // Drehteller (5. Spalte): Schritt/Vorschub gelten in Grad; dazu „auf 0°" und „hier = 0°"
+      if (i === 4) {
+        const b0 = document.createElement('button'); b0.textContent = '→0°'; b0.title = T('Drehteller auf 0° fahren');
+        b0.onclick = async () => { if (!grbl.connected) { alert(T('Erst mit der Maschine verbinden.')); return; } if (!(await releaseBlock())) return; grbl.send('G90 G0 ' + ax.letter + '0'); };
+        const bz = document.createElement('button'); bz.textContent = '=0°'; bz.title = T('Aktuellen Tellerwinkel als 0° setzen');
+        bz.onclick = () => { if (!grbl.connected) { alert(T('Erst mit der Maschine verbinden.')); return; } grbl.send('G10 L20 P0 ' + ax.letter + '0'); log(T('Drehteller: aktueller Winkel = 0°.'), 'sys'); };
+        col.appendChild(b0); col.appendChild(bz);
+      }
       jogEl.appendChild(col);
     });
     // Parallel-Handfahrt: beide horizontalen (Slot 0/2) bzw. beide vertikalen
@@ -1629,6 +1637,19 @@
     };
     function startCut() {
       if (!grbl.connected || grbl.streaming || !gcodeLines.length) return;
+      // Achsen, die das Programm benutzt, muss die Steuerung kennen (z. B. Drehteller B bei einer
+      // 4-Achs-Firmware): Anzahl der gemeldeten Positionswerte = Achsen der Steuerung.
+      {
+        const n = (grbl.lastMPos || []).length;
+        if (n) {
+          const used = new Set(); gcodeLines.forEach(l => { const c = l.split(';')[0].replace(/\([^)]*\)/g, '').toUpperCase(); let m; const re = /([ABCUVW])\s*[-+]?\d*\.?\d+/g; while ((m = re.exec(c))) used.add(m[1]); });
+          const missing = [...used].filter(l => AXIS_BIT[l] != null && AXIS_BIT[l] >= n);
+          if (missing.length) {
+            const msg = T('Das Programm benutzt die Achse ') + missing.join(', ') + T(', die Steuerung meldet aber nur ') + n + T(' Achsen. Für den Drehteller wird eine Firmware mit 5 Achsen gebraucht (z. B. grblHAL). Schnitt nicht gestartet.');
+            log(msg, 'err'); alert(msg); return;
+          }
+        }
+      }
       // Fahrweg-Grenzen prüfen — bei Überschreitung NICHT schneiden.
       const viol = checkLimits();
       if (viol) {

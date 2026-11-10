@@ -124,9 +124,8 @@
       place(slot(x, (s.top + s.bot) / 2 + (+h.y || 0), d, Math.max(d, +h.l || 0)), T('Loch') + ' ' + (i + 1));
     });
     // Ausschnitt für die Steckungshülse
-    const K = c.stkOn && r.stkHole !== false ? S.stkData(G, c) : null;
-    if (K && K.cy != null && K.oH > 0 && z <= K.len + 1e-6) {
-      const xc = S.stkCenter(G, c, z), yc = K.cy + z * K.tan;
+    if (r.stkHole !== false) for (const K of S.stkAll(G, c)) if (K.cy != null && K.oH > 0 && z >= K.z0 - 1e-6 && z <= K.len + 1e-6) {
+      const xc = K.cx(z), yc = K.cy + z * K.tan;
       const H = K.round ? circ(xc, yc, K.oW / 2, K.oW / 2, 40) : [[xc - K.oW / 2, yc - K.oH / 2], [xc + K.oW / 2, yc - K.oH / 2], [xc + K.oW / 2, yc + K.oH / 2], [xc - K.oW / 2, yc + K.oH / 2]];
       // die Hülse liegt zwischen den Gurten: Rippe dort ganz offen lassen, wenn die Hülse den Rand berührt
       const pc = pieces.find(q => xc > q.a && xc < q.b);
@@ -183,7 +182,7 @@
         ids.forEach(id => App.boolRow(det, T('entfernen:') + ' ' + pName(c, id), () => !!r.drop[id], v => { if (v) r.drop[id] = true; else delete r.drop[id]; H.upd(); }));
       }
     }
-    if (c.stkOn) App.boolRow(det, 'Ausschnitt für die Steckungshülse', () => r.stkHole !== false, v => { r.stkHole = v; H.upd(); });
+    if (c.stkOn || (c.stkSplit || []).length) App.boolRow(det, 'Ausschnitt für die Steckungshülse', () => r.stkHole !== false, v => { r.stkHole = v; H.upd(); });
     // Löcher
     const holeRows = (arr, title) => {
       subhead(det, title);
@@ -388,11 +387,10 @@
       flush();
     });
     // Steckung und Hülse
-    const K = S.stkData(G, c);
-    if (K && K.cy != null && K.len > 0 && (VIS.stk || VIS.huel)) {
-      const kz = []; const n = Math.max(2, Math.ceil(K.len / 20)); for (let i = 0; i <= n; i++) kz.push(K.len * i / n);
-      const sh = (z, w, h) => { const xc = S.stkCenter(G, c, z), yc = K.cy + z * K.tan; return K.round ? circ(xc, yc, w / 2, w / 2, 24) : [[xc - w / 2, yc - h / 2], [xc + w / 2, yc - h / 2], [xc + w / 2, yc + h / 2], [xc - w / 2, yc + h / 2]]; };
-      const ex = { pick: { t: 'stk' } }, tube = (w, h, k) => { if (!(w > 0 && h > 0)) return; const R = kz.map(z => sh(z, w, h)); loft(R, kz, k, true, ex); add(R[0].map(p => P3(p, 0)), k, { cap: 1, pick: ex.pick }); add(R[R.length - 1].map(p => P3(p, K.len)), k, { cap: 1, pick: ex.pick }); };
+    for (const K of S.stkAll(G, c)) if (K.cy != null && K.len > K.z0 && (VIS.stk || VIS.huel)) {
+      const kz = []; const n = Math.max(2, Math.ceil((K.len - K.z0) / 20)); for (let i = 0; i <= n; i++) kz.push(K.z0 + (K.len - K.z0) * i / n);
+      const sh = (z, w, h) => { const xc = K.cx(z), yc = K.cy + z * K.tan; return K.round ? circ(xc, yc, w / 2, w / 2, 24) : [[xc - w / 2, yc - h / 2], [xc + w / 2, yc - h / 2], [xc + w / 2, yc + h / 2], [xc - w / 2, yc + h / 2]]; };
+      const ex = { pick: { t: 'stk' } }, tube = (w, h, k) => { if (!(w > 0 && h > 0)) return; const R = kz.map(z => sh(z, w, h)); loft(R, kz, k, true, ex); add(R[0].map(p => P3(p, K.z0)), k, { cap: 1, pick: ex.pick }); add(R[R.length - 1].map(p => P3(p, K.len)), k, { cap: 1, pick: ex.pick }); };
       if (VIS.stk) tube(K.inW, K.inH, 'stk');
       if (VIS.huel) tube(K.oW, K.oH, 'huel');
     }
@@ -475,7 +473,7 @@
     if (c.holm.length) items.push(['holm', 'Holmstege']);
     if (c.ruder.length) items.push(['ruder', 'Ruderstege']);
     if (r.on) items.push(['rip', 'Stützrippen']);
-    if (c.stkOn) items.push(['stk', 'Steckung'], ['huel', 'Hülse']);
+    if (c.stkOn || (c.stkSplit || []).length) items.push(['stk', 'Steckung'], ['huel', 'Hülse']);
     box.innerHTML = '';
     items.forEach(([k, lab]) => {
       const l = document.createElement('label'), i = document.createElement('input');

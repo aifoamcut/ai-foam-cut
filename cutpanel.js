@@ -560,6 +560,18 @@
     }
   }
 
+  // ---------- Drehteller (Maschineneigenschaft) ----------
+  // Reiter „Drehachse" und Quelle „Drehtisch" nur zeigen, wenn die Maschine einen Drehteller hat.
+  App.tableOn = () => !!(state.cfg.tblOn && window.Drehachse);
+  App.applyTableUi = function () {
+    const on = App.tableOn();
+    document.querySelectorAll('.tabs button[data-view="rot"]').forEach(b => { b.style.display = on ? '' : 'none'; });
+    const o = document.querySelector('#cutSource option[value="rot"]');
+    if (o) { o.hidden = !on; o.disabled = !on; const s = document.getElementById('cutSource'); if (!on && s && s.value === 'rot') s.value = 'gcode'; }
+    if (!on && state.activeTab === 'rot' && App.switchView) App.switchView('machine');
+    if (App.tabMenuUpdate) { try { App.tabMenuUpdate(); } catch (e) {} }
+  };
+
   // ---------- Verdrahtung (aus app.js wireUp) ----------
   function cutWireUp() {
     if (!window.GrblPanel || !window.Sim3D) return;
@@ -568,10 +580,12 @@
     if (!App.buildDxfScene) {
       const o = document.querySelector('#cutSource option[value="dxf"]'); if (o) o.remove();
     }
+    App.applyTableUi();
     // grblHAL-Pendant — Achsnamen und G-Code kommen aus der App. Die G-Code-
     // Quelle (Tragfläche/G-Code oder Blockzurichten) wählt der Reiter „Schneiden".
     GrblPanel.init({
-      axisLetters: () => [state.cfg.axX, state.cfg.axY, state.cfg.axU, state.cfg.axV],
+      // Mit Drehteller (Reiter Maschine) kommt die Tellerachse als 5. Spalte dazu.
+      axisLetters: () => [state.cfg.axX, state.cfg.axY, state.cfg.axU, state.cfg.axV].concat(App.tableOn && App.tableOn() ? [state.cfg.tblAxis || 'B'] : []),
       limits: () => App.machineLimits(),
       // Liefert das im Reiter „Schneiden" gewählte Programm mit passender 3D-Szene.
       // Wird bei „Quelle übernehmen" ausgewertet und immer frisch erzeugt, damit
@@ -596,6 +610,11 @@
         if (src && src.value === 'calib') {
           const g = calibGcode();
           return { text: App.applyFeedMode(g.text), scene: buildCalibScene(), label: 'Abbrand-Kalibrierung' };
+        }
+        if (src && src.value === 'rot') {
+          if (!window.Drehachse || !(App.tableOn && App.tableOn())) return null;
+          const r = Drehachse.cutProgram(App.applyFeedMode);
+          return r.err ? null : r;
         }
         if (src && src.value === 'model') {
           const r = modelGcode();
