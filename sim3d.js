@@ -108,8 +108,12 @@
     let invTime = false;
 
     text.split(/\r?\n/).forEach((raw, idx) => {
-      const cm = raw.match(/SEGMENT\s+(\d+)/i);
-      if (cm && raw.trim().charAt(0) === ';') segIdx = parseInt(cm[1], 10) - 1;
+      // Nur echte Segment-Marker („; --- Segment n ---“ bzw. „; ===== SEGMENT n =====“),
+      // NICHT jeder Kommentar mit „Segment n“ — sonst ordnet z. B. der Auftragskopf
+      // („; Teil: 3D-Modell · Segment 2“) alle Bewegungen einem fremden Block zu und
+      // die blaue Schnittfläche fehlt ab Segment 2.
+      const cm = raw.match(/^\s*;\s*[-=]{3,}\s*SEGMENT\s+(\d+)\b/i);
+      if (cm) segIdx = parseInt(cm[1], 10) - 1;
       const line = raw.split(';')[0].trim();
       if (!line) return;
       if (/\bG93\b/.test(line)) invTime = true;
