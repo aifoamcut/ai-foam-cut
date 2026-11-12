@@ -928,7 +928,7 @@
       err.name = 'WriteError';
       throw err;
     }
-    toast('Gespeichert: ' + fh.name);
+    toast(T('Gespeichert: ') + fh.name);
     return fh;
   }
   // Zweiter Schreibweg über den lokalen Server der exe (launcher.py bzw.
@@ -951,7 +951,7 @@
     catch (e) { j = { ok: false, error: (e && e.message) || String(e) }; }
     if (j.ok) {
       App.lastNativeSave = { path: j.path, name: j.name, t: Date.now() };
-      toast('Gespeichert: ' + j.path);
+      toast(T('Gespeichert: ') + j.path);
       return { path: j.path, name: j.name };
     }
     if (j.cancel) return null;

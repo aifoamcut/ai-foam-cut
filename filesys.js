@@ -179,7 +179,7 @@
     if (!(await fsPerm(h, 'readwrite'))) return false;
     const fh = await h.getFileHandle(name, { create: true });
     const w = await fh.createWritable(); await w.write(text); await w.close();
-    toast('Gespeichert: ' + name + '  (' + (h.name || 'Ordner') + ')');
+    toast(T('Gespeichert: ') + name + '  (' + (h.name || T('Ordner')) + ')');
     return true;
   }
   // Datei aus dem Ladeordner öffnen (Dialog startet dort). Rückgabe {name,text} oder null.
@@ -1857,7 +1857,7 @@
       try {
         if (await fsPerm(projFileHandle, 'readwrite')) {
           const w = await projFileHandle.createWritable(); await w.write(text); await w.close();
-          toast('Gespeichert: ' + projFileHandle.name);
+          toast(T('Gespeichert: ') + projFileHandle.name);
           projSaved(); recordRecent(projFileHandle); return;
         }
       } catch (e) { /* Datei weg/gesperrt → Dialog */ }
@@ -2073,7 +2073,7 @@
       let h = null; try { h = await fsGet('recent_' + entry.id); } catch (e) {}
       if (h) {
         if (!(await fsPerm(h, 'read'))) { toast(T('Kein Zugriff auf die Datei — bitte neu laden.')); return; }
-        try { const f = await h.getFile(); loadProject(await f.text()); setProjFileHandle(h); recordRecent(h); toast('Geladen: ' + entry.name); return; }
+        try { const f = await h.getFile(); loadProject(await f.text()); setProjFileHandle(h); recordRecent(h); toast(T('Geladen: ') + entry.name); return; }
         catch (e) { toast(T('Datei nicht mehr verfügbar — bitte neu laden.')); return; }
       }
     }

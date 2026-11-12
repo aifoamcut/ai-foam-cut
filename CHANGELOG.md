@@ -4,6 +4,37 @@ Alle nennenswerten Änderungen an **AI Foam Cut** werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/).
 Neueste Einträge oben.
 
+## [2.14] — 2026-11-12
+
+### Fix: Simulation zeigt die Schnittfläche ab Segment 2 wieder (2026-11-12)
+- Im 3D-Simulator fehlte bei Segment 2 und weiter außen die Schnittfläche. Der neue Auftragskopf („; Teil: 3D-Modell · Segment n“) wurde fälschlich als Segmentwechsel gelesen. Jetzt zählen nur die echten Segment-Marker im G-Code.
+
+### Kerndesign: Menü „Nasenabschnitt“ (2026-11-12)
+- Das Seitenmenü **Nasenleiste (Vierkant)** heißt jetzt **Nasenabschnitt**, da es neben der Vierkant-Tasche auch den geraden Nasenabschnitt enthält.
+
+### Scharnierausschnitt X-Spalt als ein Schnitt (2026-11-12)
+- **Form → „X-Spalt (oben + unten)“** (bei X-Spalt entfällt „Lage der Spitze“): Ein Ausschnitt ergibt das ganze X, ohne zweiten gespiegelten Ausschnitt und ohne Dreieck mit Anfahrt. Die Profilbahn selbst läuft an der Scharnierstelle schräg bis zur Mitte und schräg wieder hinaus: oben im Zug der Oberseite, unten im Zug der Unterseite. Einstellbar: Winkel vorne/hinten und **Steg in der Mitte** (Material zwischen den Spitzen, Standard 1 mm). Abbrand an der Spitze nur um den halben Spalt (nicht k/sin α), sonst blieb in der Mitte zu viel stehen. Anzeige: das X liegt im Profil (keine Dreiecke darüber hinaus).
+
+### Rückmeldungen Neil (3) — Schlitz-Abbrand, Nasenabschnitt, profilfolgende Aussparung (2026-11-12)
+- **Fix Holmschlitz außen zu schmal**: Der Abbrand der Holmtaschen (Bezug „Lokale Geschwindigkeit“) setzte den größeren Taschenumfang mit dem Vorschub gleich und ließ den Anfahrschlitz weg. Tatsächlich führt der G-Code die Wurzelrippe mit dem Vorschub; ein paralleler Schlitz ist an beiden Rippen gleich lang, außen läuft der Draht dort also genauso schnell wie innen. Jetzt zählt der ganze Weg je Rippe (Tasche + Schlitz hin und zurück), die Wurzel ist der Bezug.
+- **Kerndesign → Nasenleiste**: neue Form **Gerader Nasenabschnitt**. Die Nase wird senkrecht im eingestellten Abstand (Wurzel/Rand) abgeschnitten, z. B. für eine aufgeklebte Balsa-Nasenleiste. Der Abbrand ist ausgeglichen, im selben Zug wie der Kernschnitt.
+- **Holmausschnitt**: neue Form **Profilfolgende Aussparung** (Gewichtserleichterung). Vorder- und Hinterwand senkrecht und parallel (Vorderwand = Lage, Hinterwand ab Nase in % oder mm, außen getrennt einstellbar), Ober- und Unterkante im Abstand zur Kern-Oberfläche in mm oder % der lokalen Dicke.
+
+### Fix: Rückmeldungen Neil (2) — Übersetzung, Strak, Holm-Warnung (2026-11-12)
+- Beschreibungs-„?“ einer ganzen Karte (z. B. „Segment im Grundriss anklicken …“) hing an der ersten Beschriftung darin (Wurzelsehne) und öffnete dort scheinbar eine leere Beschreibung. Es sitzt jetzt direkt bei seiner Beschreibung.
+- Meldungen „Gespeichert:“ / „Geladen:“ (Projekt, G-Code) erscheinen auf Englisch.
+- Holme lassen sich frei benennen (Feld **Name (frei)**); der Name steht in Kopfzeile, Kerndesign, Negativdesign, Rippendesigner und Warnungen („Holm 1 · Hauptholm“). Kopfzeile auf Englisch „Spar n“.
+- **Strak-Profil**: Am äußersten Segment gibt es kein gegebenes Profil weiter außen; der Schalter kopierte dort das Wurzelprofil über das geladene Randprofil (wirkte „verkehrt herum“). Der Schalter erscheint dort nicht mehr; beim Ausschalten kommt das zuvor geladene Profil zurück.
+- Warnung „Lage nicht proportional“ verschwand nicht, wenn Wurzel- und Außenlage danach gleich gestellt wurden. Die Seitenleiste wird jetzt neu aufgebaut, sobald sich das ändert (Übernahme mit Enter/Verlassen des Felds).
+- Englisch: „Ausrichtung an gerader Latte“, „Verschnitt/Verlust (%)“ ergänzt.
+
+### Neu: X-Ruderspalt, durchgehender Schlitz, D-Box-Beplankung (2026-11-12)
+- **Scharnierschnitt → Lage der Spitze**: neben „an der Scharnier-Profilseite“ jetzt **Profilmitte – öffnet nach oben/unten**. Zwei solche Ausschnitte ergeben den X-Spalt (z. B. Fun-Fly, 45° oben und unten); Knopf **„X-Spalt: Gegenstück anlegen“** legt den zweiten an.
+- **Scharnierschnitt → Form „Schlitz durchgehend (Hilfsendleiste)“**: senkrechter Schlitz über die ganze Profildicke auf der Scharnierlinie, Breite und Versatz einstellbar — zum Einsetzen von Hilfsendleiste/Querruder-Nasenleiste.
+- **Beplankung → „Nur D-Box“**: Beplankungsabzug nur von der Nase bis x % der Sehne (oben und unten), dahinter voller Kern mit Stufe. Wirkt auf Kernschnitt, Holmausschnitte, Profilbild und DXF; je Tragfläche gespeichert.
+- **Rippendesigner**: Bei Beplankung ist die innere Kontur (die eigentliche Rippe) durchgezogen, die Außenkontur gestrichelt. Der **STL-Export** liefert bei Beplankung jetzt die innere Kontur (vorher das volle Profil).
+- **Gurttasche nahe der Nasenleiste**: Die Taschentiefe wird an der dünnsten Stelle über die Taschenbreite begrenzt (vorher nur in der Mitte) — der Boden kann vorne nicht mehr durch die Gegenseite stoßen.
+
 ## [2.13] — 2026-11-10
 
 ### Fix: Holm „kürzester Weg“ + Rückmeldungen Neil P. (2026-11-10)

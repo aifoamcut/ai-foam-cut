@@ -2346,7 +2346,7 @@
           const o = App.ribOutline(st), sh = App.ribSheet(st, idx);
           const xs = o.pts.map(p => p.x), ys = o.pts.map(p => p.y);
           const minx = Math.min.apply(null, xs), maxx = Math.max.apply(null, xs), miny = Math.min.apply(null, ys), maxy = Math.max.apply(null, ys);
-          const core = (withSheet && (sh.top || sh.bot)) ? App.ribInset(o.pts, sh.top, sh.bot) : null;
+          const core = (withSheet && (sh.top || sh.bot)) ? App.ribInset(o.pts, sh.top, sh.bot, false, sh.dbox) : null;
           // Holmtaschen dieser Rippe (im Koordinatensystem der Rippe, wie im Rippendesigner).
           const spars = [];
           if (withSpars) (state.spars || []).forEach(sp => {

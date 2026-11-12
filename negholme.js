@@ -119,7 +119,7 @@
         });
         if (!best) return;
         const [a, b] = best.rg;
-        const kh = App.sparKerfHalf(o.sp, ctx.cut, o.gr.poly, o.gt.poly);
+        const kh = App.sparKerfHalf(o.sp, ctx.cut, o.gr.poly, o.gt.poly, o.gr.lead, o.gt.lead);
         const ins = App.sparHoleInsert(rp.slice(a, b + 1), tp.slice(a, b + 1), o.gr, o.gt, kh, o.surfR, o.surfT, App.sparProportional(o.sp));
         if (ins && ins.root.length === ins.tip.length) inserts.push({ i: ins.i + a, root: ins.root, tip: ins.tip });
       } catch (e) { /* einzelnen Holm überspringen */ }
@@ -199,7 +199,7 @@
     list.forEach(({ sp, n }) => {
       if (stOn && sp.negSteg != null && sp.negSteg !== state.cfg.negSparSteg) return;   // nur Holme des gewählten Kernteils (+ automatische)
       if (stOn) {
-        App.subhead(g.body, T('Holm ') + (n + 1) + (App.sparAppliesTo(sp, segIdx) ? '' : T(' (nicht in diesem Segment)')));
+        App.subhead(g.body, App.sparLabel(n) + (App.sparAppliesTo(sp, segIdx) ? '' : T(' (nicht in diesem Segment)')));
         selectRow(g.body, 'Kernteil', [['auto', 'Automatisch (nach Lage)']].concat(L.map((s, k) => [String(k), 'S' + (k + 1)])),
           () => sp.negSteg == null ? 'auto' : String(sp.negSteg),
           v => { sp.negSteg = v === 'auto' ? null : +v; buildSidebar(); rr(); });
@@ -215,7 +215,7 @@
         }
       }
       const o = G.find(x => x.sp === sp);
-      if (o && o.warn) warn(g.body, T('Holm ') + (n + 1) + ': ' + o.warn);
+      if (o && o.warn) warn(g.body, App.sparLabel(n) + ': ' + o.warn);
     });
     side.appendChild(g.g);
   }

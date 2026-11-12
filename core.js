@@ -180,7 +180,7 @@
       //               'segment' = je Segment eigene Werte (Wurzel/außen) in den Segmentkarten
       //   sheetSides: 'same'    = Ober- und Unterschale gleich (nutzt cfg.sheeting bzw. seg.sheetRoot/Tip)
       //               'asym'    = Ober-/Unterschale getrennt (sheetTop/Bot bzw. seg.sheet*Top/Bot)
-      sheetMode: 'global', sheetSides: 'same',
+      sheetMode: 'global', sheetSides: 'same', sheetDbox: false, sheetDboxPct: 30,
       sheetTop: 0, sheetBot: 0,           // globale asymmetrische Werte (oben/unten)
       feed: 220,
       feedAuto: true,                     // Vorschub automatisch = „Vorschub schnell" des Werkstoffs (Abbrand-Kalibrierpunkt) in ALLEN G-Codes

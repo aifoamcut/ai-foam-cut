@@ -25,7 +25,9 @@
     return {
       aR, aT,
       dR: Math.max(0, num(c.noseBarDepth, 8)), dT: Math.max(0, num(c.noseBarDepthTip, num(c.noseBarDepth, 8))),
-      rot: num(c.noseBarRot, 45), gap: Math.max(0, num(c.noseBarGap, 0.2))
+      rot: num(c.noseBarRot, 45), gap: Math.max(0, num(c.noseBarGap, 0.2)),
+      // 'square' = Vierkant-Tasche, 'cut' = gerader Nasenabschnitt (Balsa-Nasenleiste aufkleben)
+      shape: c.noseBarShape === 'cut' ? 'cut' : 'square'
     };
   }
 
@@ -51,6 +53,25 @@
     if (yc == null) yc = n.y;
     const h = a / 2 + add;
     return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => ({ x: xc + h * (u * c - v * s), y: yc + h * (u * s + v * c) }));
+  }
+  /* Gerader Nasenabschnitt: senkrechte Fläche bei x = Nase + d (Fertigmaß). Die
+   * Drahtbahn liegt um den halben Abbrand davor (auf der Verschnittseite), damit
+   * die fertige Fläche genau bei Nase + d steht. Das „Quadrat" ist ein großes
+   * Rechteck vor der Fläche -> crossings() liefert Ein-/Austritt an der Fläche,
+   * ohne Ecken = gerade Linie oben -> unten. */
+  function cutBox(P, d, kh) {
+    const n = noseOf(P), xf = n.x + d - kh, B = 1e4;
+    return [{ x: n.x - B, y: -B }, { x: xf, y: -B }, { x: xf, y: B }, { x: n.x - B, y: B }];
+  }
+  function surfAt(P, x) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < P.length; i++) {
+      const a = P[i], b = P[(i + 1) % P.length];
+      if ((a.x - x) * (b.x - x) > 0 || a.x === b.x) continue;
+      const y = a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x);
+      if (y < lo) lo = y; if (y > hi) hi = y;
+    }
+    return isFinite(lo) ? { lo, hi } : null;
   }
   function inside(Q, p) {
     for (let k = 0; k < 4; k++) {
@@ -112,8 +133,8 @@
       const p = params();
       const ck = App.cutKerf(cut.root.chord, cut.tip.chord), ki = pr.kerfInfo || {};
       const khR = (ki.root != null ? ki.root : ck.root) / 2, khT = (ki.tip != null ? ki.tip : ck.tip) / 2;
-      const QR = square(cut.root.pts, p.aR, p.dR, p.rot, p.gap / 2 - khR);
-      const QT = square(cut.tip.pts, p.aT, p.dT, p.rot, p.gap / 2 - khT);
+      const QR = p.shape === 'cut' ? cutBox(cut.root.pts, p.dR, khR) : square(cut.root.pts, p.aR, p.dR, p.rot, p.gap / 2 - khR);
+      const QT = p.shape === 'cut' ? cutBox(cut.tip.pts, p.dT, khT) : square(cut.tip.pts, p.aT, p.dT, p.rot, p.gap / 2 - khT);
       const root = pr.rootPath.slice(0, -1), tip = pr.tipPath.slice(0, -1);
       if (root.length !== tip.length) return pr;
       const cR = crossings(root, QR), cT = crossings(tip, QT);
@@ -121,7 +142,7 @@
       const iA = Math.min(cR.iE, cT.iE), iB = Math.max(cR.iX, cT.iX) + 1;
       if (iB >= root.length) return pr;
       const n1 = Math.max(cR.iE, cT.iE) - iA + 1, n2 = iB - Math.min(cR.iX, cT.iX);
-      const same = cR.corners.length === cT.corners.length;
+      const maxC = Math.max(cR.corners.length, cT.corners.length);
       const chainOf = (P, c) => {
         const pre = P.slice(iA, c.iE + 1).concat([c.entry]);
         const ring = [c.entry].concat(c.corners, [c.exit]);
@@ -130,12 +151,16 @@
       };
       const build = (P, c, M) => {
         const ch = chainOf(P, c);
-        if (!same) return resample(ch.pre.concat(ch.ring.slice(1), ch.post.slice(1)), M);
+        // Ein-/Austritt und Ecken immer exakt treffen (sonst läuft die Bahn schräg in
+        // die Tasche statt senkrecht). Ungleiche Eckenzahl: Punkte je Kante verteilen.
         let out = resample(ch.pre, n1);
-        for (let k = 0; k < ch.ring.length - 1; k++) out = out.concat(resample([ch.ring[k], ch.ring[k + 1]], NE));
+        const nE = ch.ring.length - 1, R = NE * (maxC + 1);
+        const cnt = new Array(nE).fill(Math.floor(R / nE));
+        for (let k = 0; k < R - cnt[0] * nE; k++) cnt[k]++;
+        for (let k = 0; k < nE; k++) out = out.concat(resample([ch.ring[k], ch.ring[k + 1]], cnt[k]));
         return out.concat(resample(ch.post, n2));
       };
-      const M = n1 + n2 + NE * (cR.corners.length + 1);
+      const M = n1 + n2 + NE * (maxC + 1);
       const kOf = P => P[iA].k;
       const nr = build(root, cR, M), nt = build(tip, cT, M);
       if (nr.length !== nt.length) return pr;
@@ -168,6 +193,19 @@
     ctx.save();
     ctx.lineWidth = 1.4; ctx.strokeStyle = col; ctx.fillStyle = 'rgba(200,161,101,0.18)';
     const draw = (Q, dash) => { ctx.setLineDash(dash); App.poly(ctx, V, Q, true); ctx.fill(); ctx.stroke(); };
+    if (p.shape === 'cut') {
+      const face = (P, d, dy, dash) => {
+        const x = noseOf(P).x + d, s = surfAt(P, x); if (!s) return;
+        ctx.setLineDash(dash); ctx.lineWidth = 2;
+        App.poly(ctx, V, [{ x, y: s.lo + dy }, { x, y: s.hi + dy }], false); ctx.stroke();
+      };
+      if (o.shR) face(cut.root.pts, p.dR, o.dyR, []);
+      if (o.shT) face(cut.tip.pts, p.dT, o.dyT, [5, 3]);
+      ctx.restore();
+      leg.push([col, T('Nasenabschnitt ') + p.dR.toFixed(1) + ' / ' + p.dT.toFixed(1) + T(' mm hinter der Nase')]);
+      if (o.err) leg.push(['#ff5a3c', T('! Nasenabschnitt: Schnittfläche trifft die Profilbahn nicht — Abstand prüfen')]);
+      return;
+    }
     if (o.shR) draw(sh(square(cut.root.pts, p.aR, p.dR, p.rot, 0), o.dyR), []);
     if (o.shT) draw(sh(square(cut.tip.pts, p.aT, p.dT, p.rot, 0), o.dyT), [5, 3]);
     ctx.restore();
@@ -179,12 +217,22 @@
   function noseBarSidebar(side) {
     const { grp, hint, boolRow, numRow, buildSidebar } = App;
     const c = C();
-    const g = grp('Nasenleiste (Vierkant)', false, 'core');
+    const g = grp('Nasenabschnitt', false, 'core');
     hint(g.body, 'Schneidet an der Nase eine quadratische Tasche in den Kern, in die eine Vierkantleiste (z. B. Balsa) eingeklebt '
       + 'und danach auf Profilform verschliffen wird. Die Tasche läuft im selben Zug wie der Kernschnitt; die Nasenspitze davor '
       + 'fällt als Verschnitt weg. Der Abbrand wird nach innen ausgeglichen (fertige Tasche = Kantenlänge + Spiel).');
     boolRow(g.body, 'Nasenleiste einschneiden', () => !!c.noseBarOn, v => { c.noseBarOn = v; buildSidebar(); });
-    if (c.noseBarOn) {
+    if (c.noseBarOn) App.selectRow(g.body, 'Form',
+      [['square', 'Vierkant-Tasche'], ['cut', 'Gerader Nasenabschnitt']],
+      () => params().shape, v => { c.noseBarShape = v; buildSidebar(); },
+      '„Gerader Nasenabschnitt": die Nase wird senkrecht abgeschnitten, z. B. um eine Balsa-Nasenleiste stumpf aufzukleben. '
+      + 'Der Abbrand wird ausgeglichen: die fertige Schnittfläche liegt genau im eingestellten Abstand hinter der Nase.');
+    if (c.noseBarOn && params().shape === 'cut') {
+      const p = params();
+      numRow(g.body, 'Abschnitt hinter der Nase Wurzel (mm)', () => p.dR, v => { c.noseBarDepth = Math.max(0, v); },
+        { step: 0.5, min: 0, enter: true, hint: 'Abstand der fertigen Schnittfläche hinter der Profilnase (= Dicke der Nasenleiste vor dem Verschleifen).' });
+      numRow(g.body, 'Abschnitt hinter der Nase Rand (mm)', () => p.dT, v => { c.noseBarDepthTip = Math.max(0, v); }, { step: 0.5, min: 0, enter: true });
+    } else if (c.noseBarOn) {
       const p = params();
       numRow(g.body, 'Kantenlänge Wurzel (mm)', () => p.aR, v => { c.noseBarA = Math.max(0.5, v); }, { step: 0.5, min: 0.5, enter: true });
       numRow(g.body, 'Kantenlänge Rand (mm)', () => p.aT, v => { c.noseBarATip = Math.max(0.5, v); }, { step: 0.5, min: 0.5, enter: true });

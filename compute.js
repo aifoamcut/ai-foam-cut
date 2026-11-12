@@ -582,7 +582,9 @@
    * Vorzeichen aus sparKerfMode: 'in' nach innen, 'out' nach außen, 'none' = 0.
    * Modus und Bezug kommen global aus state.cfg, können aber je Holm (sp.kerfMode
    * / sp.kerfBasis, sofern gesetzt und ≠ 'global') überschrieben werden. */
-  function sparKerfHalf(sp, cut, grPoly, gtPoly) {
+  // Länge eines offenen Linienzugs (Anfahr-Schlitz).
+  function polyLen(p) { let s = 0; for (let i = 1; i < (p || []).length; i++) s += Math.hypot(p[i].x - p[i-1].x, p[i].y - p[i-1].y); return s; }
+  function sparKerfHalf(sp, cut, grPoly, gtPoly, leadR, leadT) {
     const km = (sp && sp.kerfMode && sp.kerfMode !== 'global') ? sp.kerfMode : (state.cfg.sparKerfMode || 'none');
     if (km === 'none') return { root: 0, tip: 0 };
     const sign = km === 'out' ? -1 : 1;
@@ -590,9 +592,16 @@
     let kr, kt;
     if (basis === 'local') {
       const id = matIdFor(), cmd = state.cfg.feed;
-      const rP = polyPerim(grPoly), tP = polyPerim(gtPoly), longP = Math.max(rP, tP) || 1;
-      kr = kerfForSpeed(id, cmd * (rP / longP), cmd);
-      kt = kerfForSpeed(id, cmd * (tP / longP), cmd);
+      // Weg je Rippe = Taschenumfang + Anfahr-Schlitz hin und zurück. Der G-Code
+      // führt die WURZELRIPPE mit dem Vorschub (hotwire_gcode rawF), die Außen-
+      // rippe läuft mit Vorschub · Weg(außen)/Weg(Wurzel). Ein paralleler Schlitz
+      // ist an beiden Rippen gleich lang -> außen läuft der Draht dort GENAUSO
+      // schnell wie an der Wurzel (nicht langsamer wie im Profil), der Abbrand ist
+      // also kleiner. Früher war der längere Umfang = Vorschub und die Schlitz-
+      // Beine fehlten -> Schlitz außen zu schmal (Rückmeldung Neil P., 2026-11).
+      const rP = polyPerim(grPoly) + 2 * polyLen(leadR), tP = polyPerim(gtPoly) + 2 * polyLen(leadT);
+      kr = kerfForSpeed(id, cmd, cmd);
+      kt = kerfForSpeed(id, cmd * (rP > 1e-6 ? tP / rP : 1), cmd);
     } else {
       const ck = cutKerf(cut.root.chord, cut.tip.chord);
       kr = ck.root; kt = ck.tip;
@@ -603,6 +612,15 @@
    * Bezieht Modus (global/segmentweise) und Seiten (gleich/asymmetrisch) ein.
    * Segmentwerte, die null sind, erben den globalen Wert. */
   function sheetFor(seg) {
+    const c = state.cfg, pc = v => Math.max(1, Math.min(99, +v || 30)) / 100;
+    const r = sheetFor0(seg);
+    if (c.sheetDbox) {
+      const dbR = pc(c.sheetDboxPct), dbT = c.sheetDboxPctTip != null ? pc(c.sheetDboxPctTip) : dbR;
+      r.root.dbox = dbR; r.tip.dbox = dbT;
+    }
+    return r;
+  }
+  function sheetFor0(seg) {
     const c = state.cfg;
     const asym = c.sheetSides === 'asym';
     const gTop = asym ? (c.sheetTop || 0) : (c.sheeting || 0);

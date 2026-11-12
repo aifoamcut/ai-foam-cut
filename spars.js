@@ -14,7 +14,7 @@
   const SPAR_LEAD_N = 5, SPAR_HOLE_N = 160;
   const SPAR_CORE_GAP = 2;   // mm: Abstand des Kern-Einstichs vor der Tasche (nicht proportionale Holme)
   function applySparCuts(pr, cut, segIdx) {
-    const spars = (state.spars || []).filter(sp => sparAppliesTo(sp, segIdx));
+    const spars = sparExpandX((state.spars || []).filter(sp => sparAppliesTo(sp, segIdx)));
     if (!state.cfg.sparCut || !spars.length || !pr) return pr;
     // Schnittzeitpunkt JE HOLM (sp.cutMode, Kerndesign → Holmausschnitte): nur Loch-
     // Holme mit „während des Schnitts" werden hier in die Profilbahn eingerechnet;
@@ -28,7 +28,7 @@
     // Abbrand der Tasche: 'in' = nach innen (fertige Tasche = Nennmaß), 'out' =
     // nach außen (Tasche wird größer), 'none' = kein Versatz.
     const inserts = [];
-    const pockets = [];
+    const pockets = [], xVs = [];
     spars.forEach(sp => {
       try {
         // Nicht proportionale Holme NICHT in den Profilpfad einrechnen (würde das
@@ -39,6 +39,7 @@
         // (das Oberflächenstück wird ersetzt -> würde sonst das Profil verfälschen).
         const prop = sparProportional(sp);
         if (isPocket(sp)) { pockets.push(sp); return; }
+        if (sp._xOf) { xVs.push(sp); return; }   // X-Spalt: V im Zug der Profilseite
         if (sparModeOf(sp) !== 'during') return;   // eigene Bahnen im Modus „nach…"
         const yco = sparYc(sp);
         const coreR = pr.rootCore || sparCoreOf(cut.root.pts, segIdx, 'root'), coreT = pr.tipCore || sparCoreOf(cut.tip.pts, segIdx, 'tip');
@@ -59,12 +60,12 @@
           [gr, gt] = sB < sU ? gB : gU;
         }
         if (!gr || !gr.lead || !gt || !gt.lead) return;   // reicht bis zur Oberfläche -> überspringen
-        const kh = App.sparKerfHalf(sp, cut, gr.poly, gt.poly);   // Abbrand je Rippe (Modus/Bezug: global oder je Holm)
+        const kh = App.sparKerfHalf(sp, cut, gr.poly, gt.poly, gr.lead, gt.lead);   // Abbrand je Rippe (Modus/Bezug: global oder je Holm)
         const ins = sparHoleInsert(root, tip, gr, gt, kh, cut.root.pts, cut.tip.pts, prop);
         if (ins) inserts.push(ins);
       } catch (e) { /* einzelnen Holm überspringen, Rippenbahn bleibt erhalten */ }
     });
-    if (!inserts.length && !pockets.length) return pr;
+    if (!inserts.length && !pockets.length && !xVs.length) return pr;
     inserts.sort((a, b) => b.i - a.i);              // von hinten einfügen -> Indizes bleiben gültig
     inserts.forEach(ins => {
       root.splice(ins.i + 1, 0, ...ins.root);
@@ -89,6 +90,11 @@
           if (res) { root = res.root; tip = res.tip; }
         });
       } catch (e) { /* einzelne Tasche überspringen */ }
+    });
+    // X-Spalt: je Keil die Profilbahn schräg bis zur Mitte und wieder hinaus.
+    xVs.forEach(sp => {
+      try { const res = carveHingeV(root, tip, sp, cut, segIdx, kerfHalf); if (res) { root = res.root; tip = res.tip; } }
+      catch (e) { /* Keil überspringen */ }
     });
     // Bahn schließen und Turmbahnen neu projizieren (wie in HotWire.project).
     const rootPath = root.concat([{ x: root[0].x, y: root[0].y }]);
@@ -202,7 +208,15 @@
     const halfW = Math.max(0.1, (sz.w || 0) * u) / 2;
     // Tiefe senkrecht zur Kontur; auf ~85 % der lokalen Profildicke begrenzt, damit
     // der Boden nicht durch die gegenüberliegende Profilseite stößt.
-    const depth = Math.max(0.1, Math.min(pocketDepth(sp, side), thick * 0.85));
+    // Maßgebend ist die DÜNNSTE Stelle über die Taschenbreite (nahe der Nase ändert
+    // sich die Dicke über wenige mm stark — nur die Mitte zu prüfen ließ den Boden
+    // vorne durch die Gegenseite stoßen: Rückmeldung Neil, Gurt nahe Nasenleiste).
+    let thickMin = thick;
+    for (let k = 0; k <= 8; k++) {
+      const sx = surfaceAtX(pts, xc - halfW + 2 * halfW * k / 8);
+      thickMin = Math.min(thickMin, sx ? sx.top - sx.bot : 0);
+    }
+    const depth = Math.max(0.1, Math.min(pocketDepth(sp, side), Math.max(0.1, thickMin) * 0.85));
     const angF = (sp.angFront || 0) * Math.PI / 180, angR = (sp.angRear || 0) * Math.PI / 180;
     // Halber Steg (Doppel-T): Schlitz vom Taschenboden weiter in den Kern, Höhe je
     // Seite (pkWebTop/pkWebBot, mm), Breite pkWebW (mm). Auf die Restdicke unter dem
@@ -504,6 +518,82 @@
     if (newRoot.length !== newTip.length) return null;  // Sicherheits-Guard (Sync)
     return { root: newRoot, tip: newTip };
   }
+  // X-Spalt-Keil (Teil aus sparExpandX) in die Profilbahn: die Bahn läuft auf der
+  // Profilseite bis zum vorderen Bein, schräg hinein bis zur Spitze (Mitte minus
+  // halber Steg), schräg wieder hinaus und auf dem Profil weiter. Kein Dreieck mit
+  // Basis -> der Keil fällt heraus. Abbrand: Beine um k in den Keil versetzt.
+  function carveHingeV(root, tip, sp, cut, segIdx, kerfHalf) {
+    const M = 12;
+    const legs = (which, pts, k) => {
+      const g = sparOnProfile(sp, pts, pts, sparFromLE(sp, segIdx, which), null, which, null);
+      if (!g || !g.poly || g.poly.length < 3) return null;
+      const P = k ? offsetInward(g.poly.map(p => ({ x: p.x, y: p.y })), k) : g.poly.map(p => ({ x: p.x, y: p.y }));
+      // Basis-Kante (am weitesten von der Spitze) weglassen -> offene Beinkette.
+      // Basis-Kante = Kante mit dem größten Abstand zur Profilmitte -> weglassen.
+      const n = P.length;
+      const farY = (a, b) => { const s0 = surfaceAtX(pts, (a.x + b.x) / 2); const mid = s0 ? (s0.top + s0.bot) / 2 : 0; return Math.abs((a.y + b.y) / 2 - mid); };
+      let bi = 0, bd = -1;
+      for (let i = 0; i < n; i++) { const d = farY(P[i], P[(i + 1) % n]); if (d > bd) { bd = d; bi = i; } }
+      const chain = []; for (let j = 1; j <= n; j++) chain.push(P[(bi + j) % n]);   // Basisecke → … → Basisecke
+      // Spitze: der Parallel-Versatz schiebt sie bei spitzen Winkeln um k/sin(α)
+      // weg (15° -> ~3,9·k) — der runde Draht schneidet die Spitze aber nur um k
+      // aus. Daher Drahtspitze = Nennspitze um k Richtung Öffnung (sonst bleibt in
+      // der Mitte viel zu viel stehen, die Kerben werden zu flach).
+      if (k) {
+        const N0 = g.poly, by = (N0[bi].y + N0[(bi + 1) % n].y) / 2;   // Basis-Höhe
+        // chain[m] = P[(bi+1+m)%n]; m = 0 und n-1 sind die Basisecken (bleiben Offset).
+        for (let m = 1; m < n - 1; m++) {
+          const q = N0[(bi + 1 + m) % n], s = by > q.y ? 1 : -1;
+          chain[m] = { x: q.x, y: q.y + s * k };
+        }
+      }
+      return chain;
+    };
+    const rayHit = (path, from, to) => {   // Strahl from->to (verlängert) mit der Bahn; nächster Treffer jenseits from
+      const dx = to.x - from.x, dy = to.y - from.y; let best = null;
+      for (let i = 0; i < path.length - 1; i++) {
+        const a = path[i], b = path[i + 1], ex = b.x - a.x, ey = b.y - a.y, den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-12) continue;
+        const u = ((a.x - from.x) * ey - (a.y - from.y) * ex) / den, t = ((a.x - from.x) * dy - (a.y - from.y) * dx) / den;
+        if (u > 1e-6 && t >= 0 && t <= 1 && (!best || u < best.u)) best = { i, t, u };
+      }
+      return best;
+    };
+    const kR = kerfHalf ? (kerfHalf.root || 0) : 0, kT = kerfHalf ? (kerfHalf.tip || 0) : 0;
+    const cR = legs('root', cut.root.pts, kR), cT = legs('tip', cut.tip.pts, kT);
+    if (!cR || !cT || cR.length !== cT.length) return null;
+    const side = (path, c) => {
+      const n = c.length, h0 = rayHit(path, c[1], c[0]), h1 = rayHit(path, c[n - 2], c[n - 1]);
+      if (!h0 || !h1) return null;
+      const inner = c.slice(1, n - 1);
+      const m0 = lerpPt(path[h0.i], path[h0.i + 1], h0.t), m1 = lerpPt(path[h1.i], path[h1.i + 1], h1.t);
+      const first = (h0.i < h1.i || (h0.i === h1.i && h0.t <= h1.t));
+      const chain = first ? [m0].concat(inner, [m1]) : [m1].concat(inner.slice().reverse(), [m0]);
+      return { a: first ? h0 : h1, b: first ? h1 : h0, chain };
+    };
+    const sR = side(root, cR), sT = side(tip, cT);
+    if (!sR || !sT) return null;
+    const dense = ch => { let o = [ch[0]]; for (let i = 0; i < ch.length - 1; i++) o = o.concat(resampleSeg(ch[i], ch[i + 1], M).slice(1)); return o; };
+    return spliceSync(root, tip, sR.a, sR.b, sT.a, sT.b, dense(sR.chain), dense(sT.chain));
+  }
+  // Ersatzstück rep (inkl. Mündungen) zwischen a und b in Wurzel- und Randbahn
+  // spleißen, Türme synchron (wie carvePocketSide).
+  function spliceSync(root, tip, aR, bR, aT, bT, repR, repT) {
+    if (repR.length !== repT.length || bR.i < aR.i || bT.i < aT.i) return null;
+    if (aR.i === aT.i && bR.i === bT.i) {
+      const nr = root.slice(0, aR.i + 1).concat(repR, root.slice(bR.i + 1));
+      const nt = tip.slice(0, aT.i + 1).concat(repT, tip.slice(bT.i + 1));
+      return nr.length === nt.length ? { root: nr, tip: nt } : null;
+    }
+    const lo = Math.min(aR.i, aT.i), hi = Math.max(bR.i, bT.i) + 1;
+    if (hi >= root.length || hi >= tip.length) return null;
+    const s1R = root.slice(lo, aR.i + 1).concat([repR[0]]), s1T = tip.slice(lo, aT.i + 1).concat([repT[0]]);
+    const s3R = [repR[repR.length - 1]].concat(root.slice(bR.i + 1, hi + 1)), s3T = [repT[repT.length - 1]].concat(tip.slice(bT.i + 1, hi + 1));
+    const n1 = Math.max(2, s1R.length, s1T.length), n3 = Math.max(2, s3R.length, s3T.length);
+    const nr = root.slice(0, lo).concat(resamplePolylineN(s1R, n1), repR.slice(1, -1), resamplePolylineN(s3R, n3), root.slice(hi + 1));
+    const nt = tip.slice(0, lo).concat(resamplePolylineN(s1T, n1), repT.slice(1, -1), resamplePolylineN(s3T, n3), tip.slice(hi + 1));
+    return nr.length === nt.length ? { root: nr, tip: nt } : null;
+  }
   // Schräglage einer Tasche (nicht proportionale Lage): Sehnenanteil der Mündung an
   // Wurzel und Rand des Bereichs und geschätzte Abweichung der Zwischenrippe in mm
   // (Punkt der Zwischenrippe = Mischung aus Wurzel- und Randpunkt verschiedener
@@ -774,7 +864,7 @@
   // Teil 1: Abbrand-Offset, Klemmen, Deloop, Anfahrpunkt -> { loop, corner }.
   function holeLoopPrep(entry, holePoly, edgePt, kerf, surfPts, viaCore) {
     let hole = holePoly.map(p => ({ x: p.x, y: p.y }));
-    if (kerf) hole = offsetInward(hole, kerf);   // kerf<0 (Abbrand außen) versetzt nach AUSSEN
+    if (kerf) hole = holePoly.xLobes ? xHingeOffset(holePoly, kerf) : offsetInward(hole, kerf);   // kerf<0 (Abbrand außen) versetzt nach AUSSEN
     // (1) Kein Überstand über das Außenprofil: reicht ein Gurt an die Oberfläche,
     // liegen Ober-/Unterkante der Tasche auf der Kontur; ein Versatz nach außen
     // schöbe sie darüber hinaus. Solche Punkte wieder auf die Oberfläche klemmen.
@@ -787,7 +877,7 @@
     // Ausnahme: Scharnierausschnitt (holePoly.noClamp) soll BEWUSST über die
     // gegenüberliegende Profilseite hinausgehen -> nicht klemmen.
     if (surfPts && !holePoly.noClamp) hole = hole.map(p => { const s = surfaceAtX(surfPts, p.x); return s ? { x: p.x, y: Math.max(s.bot, Math.min(s.top, p.y)) } : p; });
-    if (kerf) {
+    if (kerf && !holePoly.xLobes) {
       // (2) SAUBERER Parallel-Offset: Selbstüberschneidungen (Spitzen-Schleifen an
       // Gurtenden/einspringenden Ecken, wenn der Versatz größer als ein lokales
       // Feature ist) herausschneiden. So bekommt die Drahtspur keine Zacken „nach
@@ -1059,7 +1149,7 @@
   function sparCoreFromSheet(pts, sh) {
     if (!sh || (!(sh.top > 0) && !(sh.bot > 0)) || !pts || pts.length < 3) return null;
     try {
-      const c = Airfoil.resample(HotWire.trimTE(HotWire.offsetPathTB(pts, sh.top || 0, sh.bot || 0)), pts.length);
+      const c = Airfoil.resample(HotWire.trimTE(HotWire.offsetPathTB(pts, sh.top || 0, sh.bot || 0, sh.dbox)), pts.length);
       return c && c.length > 2 ? c : null;
     } catch (e) { return null; }
   }
@@ -1075,13 +1165,18 @@
       const sp2 = Object.assign({}, sp, { approach: swTB(sp.approach), _mirDone: true });
       const g = sparOnProfile(sp2, mirY(pts), mirY(surfPts), fromLE, ycOverride != null ? -ycOverride : ycOverride, which, mirY(core));
       if (!g) return g;
-      const rv = a => a ? mirY(a).reverse() : a;   // Umlaufsinn erhalten
+      const rv = a => {   // Umlaufsinn erhalten; Kennungen (noClamp, X-Spalt-Keile) mitnehmen
+        if (!a) return a;
+        const r = mirY(a).reverse(); if (a.noClamp) r.noClamp = true; if (a.closed) r.closed = true;
+        if (a.xLobes) r.xLobes = a.xLobes.map(L => { const m = mirY(L).reverse(); return m.slice(m.length - 1).concat(m.slice(0, m.length - 1)); });
+        return r;
+      };
       return Object.assign({}, g, { poly: rv(g.poly), poly2: rv(g.poly2), lead: mirY(g.lead), yc: g.yc != null ? -g.yc : g.yc });
     }
     const xs = pts.map(p => p.x), leX = Math.min.apply(null, xs), teX = Math.max.apply(null, xs);
     const chord = (teX - leX) || 1;
     const dLE = fromLE != null ? fromLE : (sp.posMode === 'mm' ? (sp.pos || 0) : (sp.pos || 0) / 100 * chord);
-    const xc = leX + dLE;
+    const xc0 = leX + dLE; let xc = xc0;
     // Ab hier Kern statt Originalprofil (Taschen bleiben am Profil: dort wird die
     // Oberfläche selbst ersetzt, Tiefe ist ab Oberfläche gemessen).
     if (core && core.length > 2 && !isPocket(sp)) { pts = core; if (!surfPts) surfPts = core; }
@@ -1139,15 +1234,50 @@
     const angF = (sp.angFront || 0) * Math.PI / 180, angR = (sp.angRear || 0) * Math.PI / 180;
     const baseRef = sp.shape === 'trapez' ? (sp.baseRef || 'center') : 'center';
     // Scharnierausschnitt: Scharnier-Profilseite aus dem Wurzelsegment des Bereichs.
+    // hingeAt 'midUp'/'midDn' (X-Spalt, z. B. Fun-Fly 45° oben UND unten): Spitze auf der
+    // Profilmitte, Kerbe öffnet nach oben bzw. unten. Zwei solche Ausschnitte = X.
+    const hAt = isXHinge(sp) ? 'x' : sp.shape === 'hinge' ? (sp.hingeAt || 'line') : 'line';
     const hingeSideR = sp.shape === 'hinge'
-      ? ((state.segments[sparRange(sp)[0]] && state.segments[sparRange(sp)[0]].hingeSide) || 'top')
+      ? (hAt === 'midUp' ? 'bottom' : (hAt === 'midDn' || hAt === 'x') ? 'top'
+        : ((state.segments[sparRange(sp)[0]] && state.segments[sparRange(sp)[0]].hingeSide) || 'top'))
       : null;
     let poly;
     if (sp.shape === 'hinge') {
-      poly = hingeNotchPoly(surf, xc, hingeSideR, angF, angR, sp.hingeOver || 0, sp.hingeReach || 0, sp.hingeForm || 'v', sp.hingeTipW || 0);
+      const midY = (surf.top + surf.bot) / 2;
+      const sN = hAt === 'midUp' ? { top: surf.top, bot: midY } : hAt === 'midDn' ? { top: midY, bot: surf.bot } : surf;
+      // Schlitz durchgehend (Hilfsendleiste/Querruder-Nasenleiste einsetzen): senkrechte
+      // Wände, Breite hingeTipW, immer ganz durch das Profil (oben und unten hinaus).
+      const isSlot = sp.hingeForm === 'slot';
+      if (hAt === 'x' && !isSlot) {
+        // X-Spalt als EIN Schnitt: zwei Keile mit gemeinsamer Spitze in der Profilmitte
+        // (oben öffnend + unten öffnend). Die Drahtbahn läuft von unten das linke Bein
+        // hoch durch die Mitte, oben hinaus, über die Oberseite und rechts wieder durch
+        // die Mitte nach unten -> keine Trapezspiegelung/zwei Ausschnitte mehr.
+        const fm = sp.hingeForm === 'trapez' ? 'trapez' : 'v', tw = sp.hingeTipW || 0, ov = 0, rc = -Math.max(0, sp.hingeWeb != null ? sp.hingeWeb : 1) / 2;
+        const A = hingeNotchPoly({ top: surf.top, bot: midY }, xc, 'bottom', angF, angR, ov, rc, fm, tw);
+        const B0 = hingeNotchPoly({ top: midY, bot: surf.bot }, xc, 'top', angF, angR, ov, rc, fm, tw);
+        if (A && B0) {
+          const B = B0.slice(2).concat(B0.slice(0, 2));   // ab Spitze bzw. kurzer Seite rechts
+          // Basisecken auf die Profiloberfläche ziehen (Bein ∩ Oberfläche) -> das X
+          // liegt in der Anzeige im Profil statt als Dreieck darüber hinaus.
+          const clipL = (L, top) => L.map((p, i) => {
+            const out = top ? p.y > (surfaceAtX(pts, p.x) || { top: Infinity }).top : p.y < (surfaceAtX(pts, p.x) || { bot: -Infinity }).bot;
+            if (!out) return p;
+            const nb = [L[(i + 1) % L.length], L[(i - 1 + L.length) % L.length]].find(q => Math.abs(q.y - midY) < Math.abs(p.y - midY) - 1e-6);
+            return (nb && wallHitSurface(nb, p, pts, top)) || p;
+          });
+          A.splice(0, A.length, ...clipL(A, true)); B.splice(0, B.length, ...clipL(B, false));
+          poly = xHingeJoin(A, B); poly.xLobes = [A, B]; poly.closed = true;
+        }
+      } else
+      poly = isSlot
+        ? hingeNotchPoly(surf, xc + (sp.slotShift || 0), hingeSideR, 0, 0, Math.max(1, sp.hingeOver || 0), Math.max(1, sp.hingeReach || 0), 'trapez', Math.max(0.2, sp.hingeTipW || 3))
+        : hingeNotchPoly(sN, xc, hingeSideR, angF, angR, sp.hingeOver || 0, sp.hingeReach || 0, sp.hingeForm || 'v', sp.hingeTipW || 0);
       // Der Schnittpfad soll über die gegenüberliegende Profilseite hinausgehen
       // dürfen -> in holeExcursion NICHT auf die Oberfläche klemmen.
       if (poly) poly.noClamp = true;
+    } else if (sp.shape === 'contour') {
+      poly = contourCutPoly(sp, pts, leX, chord, xc, which);
     } else if (dt) {
       poly = doubleTClampedPoly(pts, xc, yc, dt);
     } else if (sp.shape === 'trapez' && baseRef !== 'center') {
@@ -1164,6 +1294,8 @@
       poly = sparPoly(sp.shape, xc, yc, W, H, sp.taper);
     }
     if (!poly) return null;
+    // Profilfolgende Aussparung: xc = Lage der Vorderwand -> Anfahrt in der Mitte.
+    if (sp.shape === 'contour') xc = (poly[0].x + poly[Math.floor(poly.length / 2) - 1].x) / 2;
     // Anfahrt: senkrecht bei x=xc von der Oberfläche zur Taschenkante. lead[0] =
     // Punkt AUF der Tasche (an x=xc, an die Kontur geklemmt), lead[1] = Oberfläche.
     // Immer gesetzt (auch bei Berührung -> Länge 0), damit stets ein Schnitt entsteht.
@@ -1185,6 +1317,34 @@
         : [{ x: xc, y: botEdge }, { x: xc, y: surfC.bot }];
     }
     return { poly, lead, xc, yc };
+  }
+  /* Profilfolgende Aussparung (shape 'contour', Gewichtserleichterung): senkrechte,
+   * parallele Vorder-/Hinterwand, Ober-/Unterkante im Abstand zur Kern-Oberfläche.
+   *   Vorderwand = Holm-Lage (xc, sparFromLE -> proportional/mm wie jeder Holm),
+   *   Hinterwand = sp.cfRear ab Nase (gleiche Einheit wie die Lage; außen
+   *   sp.cfRearTip bei „Außenmaß abweichend"), Abstand oben/unten sp.cfOffTop/
+   *   cfOffBot in mm oder % der LOKALEN Profildicke (folgt so der Profilform).
+   * Abstand senkrecht gemessen (nicht normal zur Kontur). Umlauf wie
+   * trapezClampedPoly: Unterkante vorne->hinten, Oberkante hinten->vorne. */
+  function contourCutPoly(sp, pts, leX, chord, xFront, which) {
+    const pctPos = sp.posMode !== 'mm';
+    const rv = (which === 'tip' && sp.sizeTip && sp.cfRearTip != null) ? sp.cfRearTip : (sp.cfRear != null ? sp.cfRear : (pctPos ? 60 : 0.6 * chord));
+    const xRear = leX + (pctPos ? rv / 100 * chord : rv);
+    const x0 = xFront, x1 = xRear;
+    if (!(x1 > x0 + 0.5)) return null;
+    const pct = sp.sizeMode !== 'mm';
+    const oT = Math.max(0, sp.cfOffTop != null ? sp.cfOffTop : (pct ? 15 : 2));
+    const oB = Math.max(0, sp.cfOffBot != null ? sp.cfOffBot : (pct ? 15 : 2));
+    const N = 24, bot = [], top = [];
+    for (let i = 0; i <= N; i++) {
+      const x = x0 + (x1 - x0) * i / N, s = surfaceAtX(pts, x);
+      if (!s) return null;
+      const th = s.top - s.bot, dT = pct ? oT * th / 100 : oT, dB = pct ? oB * th / 100 : oB;
+      let yT = s.top - dT, yB = s.bot + dB;
+      if (yT - yB < 0.6) { const m = (yT + yB) / 2; yT = m + 0.3; yB = m - 0.3; }   // zu dünn: Mindestspalt
+      bot.push({ x, y: yB }); top.push({ x, y: yT });
+    }
+    return bot.concat(top.reverse());
   }
   // Polygon einer Holmform, zentriert bei (xc,yc), Breite W, Höhe H.
   function sparPoly(shape, xc, yc, W, H, taper) {
@@ -1210,6 +1370,37 @@
   // (Bogenmaß). over = mm über die gegenüberliegende (Anfahr-)Profilseite hinaus
   // (Basis). reach = Lage der Spitze relativ zur Scharnierlinie (mm; + über die
   // Scharnierseite hinaus, − davor) -> wie weit die Schnittspur Richtung Scharnier geht.
+  // X-Spalt (hingeAt 'x') für den SCHNITT in zwei Keile zerlegen: oberer V (öffnet
+  // nach oben, Anfahrt von oben -> im Oberseitenzug), unterer V (öffnet nach unten,
+  // Anfahrt von unten -> im Unterseitenzug). Spitzen auf der Profilmitte; der
+  // Kreuzungspunkt bleibt als Scharnier stehen. Anzeige nutzt die X-Form.
+  // X-Spalt: Form 'x' (Altstand: Lage der Spitze 'x').
+  function isXHinge(sp) { return !!sp && sp.shape === 'hinge' && (sp.hingeForm === 'x' || (sp.hingeAt === 'x' && sp.hingeForm !== 'slot')); }
+  function sparExpandX(list) {
+    const out = [];
+    list.forEach(sp => {
+      if (isXHinge(sp))
+        { const w = -Math.max(0, sp.hingeWeb != null ? sp.hingeWeb : 1) / 2;   // Steg in der Mitte (mm)
+          const fm = sp.hingeForm === 'trapez' ? 'trapez' : 'v';
+          out.push(Object.assign({}, sp, { hingeForm: fm, hingeAt: 'midUp', hingeReach: w, _xOf: sp }), Object.assign({}, sp, { hingeForm: fm, hingeAt: 'midDn', hingeReach: w, _xOf: sp })); }
+      else out.push(sp);
+    });
+    return out;
+  }
+  // X-Spalt: Keil A (oben) + Keil B (unten), beide ab ihrer Spitze -> eine Bahn
+  // A0..An, A0, B0..Bn, B0 (Kreuzung in der Mitte).
+  function xHingeJoin(A, B) {
+    return A.map(p => ({ x: p.x, y: p.y })).concat([{ x: A[0].x, y: A[0].y }],
+      B.map(p => ({ x: p.x, y: p.y })), [{ x: B[0].x, y: B[0].y }]);
+  }
+  // Abbrand-Versatz je Keil getrennt (ein Versatz der gekreuzten Bahn würde deloop
+  // einen Keil wegschneiden lassen); danach wieder zur X-Bahn verbinden.
+  function xHingeOffset(poly, k) {
+    const L = poly.xLobes;
+    const A = offsetInward(L[0].map(p => ({ x: p.x, y: p.y })), k), B = offsetInward(L[1].map(p => ({ x: p.x, y: p.y })), k);
+    // Spitzen NICHT zusammenlegen: der Kreuzungspunkt (Scharnier-Steg) bleibt Material.
+    return xHingeJoin(A, B);
+  }
   function hingeNotchPoly(surf, xc, hSide, angF, angR, over, reach, form, tipW) {
     if (!surf) return null;
     const tF = Math.tan(Math.max(0, angF)), tR = Math.tan(Math.max(0, angR));
@@ -1472,7 +1663,7 @@
         strokePoly(g.poly);
         if (g.poly2) strokePoly(g.poly2);   // zweite Taschenseite (Paar oben+unten)
       }
-      if (g.lead) {
+      if (g.lead && !g.poly.xLobes) {   // X-Spalt: keine Anfahrt, Keile liegen in der Profilbahn
         info.lead = true;
         const a = { x: g.lead[0].x, y: g.lead[0].y + (dy || 0) }, b = { x: g.lead[1].x, y: g.lead[1].y + (dy || 0) };
         ctx.strokeStyle = App.PAL.sparLead; ctx.lineWidth = 1.2; ctx.setLineDash(dashFor('sparLead', [4, 3]));
@@ -1489,7 +1680,7 @@
       // Tasche NICHT in die Profilbahn eingerechnet ist (Modus „nach"/„nur", oder
       // nicht proportionale Holme, die ebenfalls separat geschnitten werden).
       const bakedInPath = state.cfg.sparCut && !state.cfg.sparOnly
-        && sparModeOf(sp) === 'during';
+        && (sparModeOf(sp) === 'during' || isXHinge(sp));
       if (!bakedInPath && state.cfg.showKerf && cut && g.poly && g.poly.length > 2) {
         try {
           const cR = sparCoreOf(cut.root.pts, segIdx, 'root'), cT = sparCoreOf(cut.tip.pts, segIdx, 'tip');
@@ -1497,7 +1688,7 @@
           const gt = sparOnProfile(sp, cut.tip.pts, cT || cut.tip.pts, sparFromLE(sp, segIdx, 'tip'), sparYc(sp), 'tip', cT);
           if (gr && gt) {
             info.kerf = true;
-            const kh = App.sparKerfHalf(sp, cut, gr.poly, gt.poly);
+            const kh = App.sparKerfHalf(sp, cut, gr.poly, gt.poly, gr.lead, gt.lead);
             const k = which === 'root' ? kh.root : kh.tip;
             ctx.strokeStyle = App.PAL.kerf; ctx.lineWidth = 1.3; ctx.setLineDash(dashFor('kerf', [4, 3]));
             if (isPocket(sp)) {
@@ -1528,8 +1719,21 @@
               });
               ctx.setLineDash([]);
             } else {
-              let off = k ? offsetInward(g.poly.map(p => ({ x: p.x, y: p.y })), k) : g.poly.map(p => ({ x: p.x, y: p.y }));
-              if (k) off = deloopPoly(off);
+              if (g.poly.xLobes) {
+                // X-Spalt: nur die Beine je Keil (keine Basis) — so läuft die Drahtbahn.
+                g.poly.xLobes.forEach(L => {
+                  let P = k ? offsetInward(L.map(p => ({ x: p.x, y: p.y })), k) : L.map(p => ({ x: p.x, y: p.y }));
+                  const n = P.length, far = (a, b) => { const s0 = surfaceAtX(pts, (a.x + b.x) / 2); return Math.abs((a.y + b.y) / 2 - (s0 ? (s0.top + s0.bot) / 2 : 0)); };
+                  let bi = 0, bd = -1; for (let i = 0; i < n; i++) { const d = far(P[i], P[(i + 1) % n]); if (d > bd) { bd = d; bi = i; } }
+                  const ch = []; for (let j = 1; j <= n; j++) { const q = P[(bi + j) % n]; ch.push({ x: q.x, y: q.y + (dy || 0) }); }
+                  if (App.kerfBand) App.kerfBand(ctx, V, [ch], { k: 2 * k });
+                  ctx.beginPath(); ch.forEach((p, i) => i ? ctx.lineTo(V.X(p.x), V.Y(p.y)) : ctx.moveTo(V.X(p.x), V.Y(p.y))); ctx.stroke();
+                });
+                ctx.setLineDash([]);
+                return;
+              }
+              let off = !k ? g.poly.map(p => ({ x: p.x, y: p.y }))
+                : g.poly.xLobes ? xHingeOffset(g.poly, k) : deloopPoly(offsetInward(g.poly.map(p => ({ x: p.x, y: p.y })), k));
               // Scharnierausschnitt (noClamp): Schnittspur NICHT auf die Kontur klemmen
               // (der Schnitt soll über die Profilseite hinausgehen) — wie im G-Code.
               if (!g.poly.noClamp) off = off.map(p => { const s = surfaceAtX(pts, p.x); return s ? { x: p.x, y: Math.max(s.bot, Math.min(s.top, p.y)) } : p; });
@@ -1571,7 +1775,7 @@
   Object.assign(App, { holeLoopPrep, kerfKeepTopology, lerpPt, loopAnchors, monotonicX, nearestIdx, offsetArcPerp, offsetInward });
   Object.assign(App, { floorWithWeb, isPocket, migrateSparModes, sparModeOf, pocketDepth, pocketSkewInfo, pocketFloorFromArc, pocketGeom, pocketMergedLoop, pocketOutline, pocketWallKerf, polyArea, profileWithPockets });
   Object.assign(App, { resampleLoopN, resamplePolylineN, resampleSeg, segCross, segRibChord, simplifyLoop, sparAppliesTo, sparConvertFlangeH });
-  Object.assign(App, { sparConvertSizeUnits, sparCoreFromSheet, sparCoreOf, sparFromLE, sparKerfIn, sparOnProfile, sparOwnFromLE, sparPoly, sparPolys, sparProportional });
+  Object.assign(App, { sparConvertSizeUnits, sparCoreFromSheet, sparCoreOf, sparFromLE, sparKerfIn, sparExpandX, isXHinge, carveHingeV, sparOnProfile, sparOwnFromLE, sparPoly, sparPolys, sparProportional });
   Object.assign(App, { sparRange, sparRefThick, sparSize, sparYOff, sparYc, stationChord, stationLE, stationZ });
   Object.assign(App, { surfaceAtX, trapezBaseRefPoly, trapezClampedPoly, wallHitSurface, wedgeClampedPoly });
 })();

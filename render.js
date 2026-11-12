@@ -1847,7 +1847,7 @@
     const sk = (state.spars || []).map((sp, i) => ({ i, k: App.pocketSkewInfo(sp) })).filter(o => o.k);
     if (sk.length) {
       const dev = Math.max.apply(null, sk.map(o => o.k.devMm));
-      const who = sk.map(o => T('Holm ') + (o.i + 1) + ' (' + o.k.rootPct.toFixed(0) + ' % / ' + o.k.tipPct.toFixed(0) + ' %)').join(', ');
+      const who = sk.map(o => App.sparLabel(o.i) + ' (' + o.k.rootPct.toFixed(0) + ' % / ' + o.k.tipPct.toFixed(0) + ' %)').join(', ');
       msgs.push([T('⚠ Tasche nicht proportional: ') + who,
         T('Profilbahn im Taschenbereich abschnittsweise neu abgetastet — Draht steht schräg, Zwischenrippen bis ≈ ')
         + dev.toFixed(1) + T(' mm in Flugrichtung verzerrt')]);

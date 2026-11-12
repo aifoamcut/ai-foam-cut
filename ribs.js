@@ -314,7 +314,10 @@
     if (rc.sheetMode === 'global') return { top: rc.sheet || 0, bot: rc.sheet || 0 };
     if (rc.sheetMode === 'perRib') { const g = rc.sheet || 0, v = rc.sheetPer[idx]; const t = (v == null ? g : v); return { top: t, bot: t }; }
     const sf = App.sheetFor(state.segments[st.seg]);   // 'wing' — aus dem Tragflächendesign
-    return { top: sf.root.top + (sf.tip.top - sf.root.top) * st.t, bot: sf.root.bot + (sf.tip.bot - sf.root.bot) * st.t };
+    const r = { top: sf.root.top + (sf.tip.top - sf.root.top) * st.t, bot: sf.root.bot + (sf.tip.bot - sf.root.bot) * st.t };
+    // „Nur D-Box" aus dem Tragflächendesign mitnehmen (Länge zwischen Wurzel/Rand interpoliert).
+    if (sf.root.dbox > 0) r.dbox = sf.root.dbox + ((sf.tip.dbox || sf.root.dbox) - sf.root.dbox) * st.t;
+    return r;
   }
   // Kernlinie (Kontur nach Beplankungsabzug): echter, senkrechter (normalen-)
   // Versatz der Profilkontur nach innen — Oberseite um `top`, Unterseite um `bot`,
@@ -322,8 +325,13 @@
   // Spalten-Abtastung erzeugte dort eine gerade Linie). Wo die Restdicke ≤ 0 wird
   // (dünne/spitze Endleiste, spitze Nase), kreuzt sich der Versatz — deloopPoly
   // schneidet das sauber heraus, sodass der Kern dort schlüssig endet.
-  function ribInset(pts, top, bot, sharp) {
+  function ribInset(pts, top, bot, sharp, dbox) {
     if (!(top > 0) && !(bot > 0)) return null;
+    // „Nur D-Box": Kern über denselben Versatz wie der Kernschnitt (Stufe senkrecht zum Profil).
+    if (dbox > 0 && dbox < 1 && App.sparCoreFromSheet) {
+      const c = App.sparCoreFromSheet(pts, { top, bot, dbox });
+      if (c && c.length > 2) return c;
+    }
     const n = pts.length; if (n < 3) return null;
     const s = polyArea(pts) > 0 ? 1 : -1;
     // Lokale Beplankungsdicke an einem Punkt: unten `bot`, oben `top`, dazwischen
@@ -643,8 +651,11 @@
         const g = sparOnProfile(sp, o.pts, null, fl, sparYc(sp), st.t < 0.5 ? 'root' : 'tip', App.sparCoreFromSheet(o.pts, ribSheet(st, list.indexOf(st))));
         sparPolys(g).forEach(pl => sparFull.push(pl));
       });
+      // Beplankte Rippe: der Rippenkörper ist die INNERE Kontur (Profil minus Beplankung).
+      const shK = ribSheet(st, list.indexOf(st));
+      const body = (shK && (shK.top || shK.bot)) ? (ribInset(o.pts, shK.top, shK.bot, rc.coreTe === 'sharp', shK.dbox) || o.pts) : o.pts;
       ribHalfSpecs(o.pts, o.chord, st, o).forEach(spec => {
-        const outer = applyHalfSpec(o.pts, spec); if (!outer || outer.length < 3) return;
+        const outer = applyHalfSpec(body, spec); if (!outer || outer.length < 3) return;
         const holes = sparFull.map(sp => applyHalfSpec(sp, spec)).filter(h => h && h.length >= 3);
         const xs = outer.map(p => p.x), ys = outer.map(p => p.y);
         const minx = Math.min.apply(null, xs), maxx = Math.max.apply(null, xs);
@@ -989,8 +1000,8 @@
         App.hint(gh.body, 'Noch keine Holme angelegt. Holme werden im Reiter „Tragflächendesigner“ → „Holmausschnitte“ definiert.');
       else state.spars.forEach((sp, j) => {
         const [a, b] = sparRange(sp);
-        const range = a === b ? ('Segment ' + (a + 1)) : ('Segmente ' + (a + 1) + '–' + (b + 1));
-        App.boolRow(gh.body, 'Holm ' + (j + 1) + ' · ' + range,
+        const range = a === b ? (T('Segment ') + (a + 1)) : (T('Segmente ') + (a + 1) + '–' + (b + 1));
+        App.boolRow(gh.body, App.sparLabel(j) + ' · ' + range,
           () => !rc.sparHide[j],
           v => { if (v) delete rc.sparHide[j]; else rc.sparHide[j] = true; renderRib(); });
       });
@@ -1168,7 +1179,7 @@
       const cyv = (miny + maxy) / 2;
       const norm = p => ({ x: p.x - minx, y: p.y - cyv });
       // Volle Kontur/Kern/Holme, danach in Halbrippen-Stücke geschnitten.
-      const coreFull = (rc.showCore && (sh.top || sh.bot)) ? ribInset(o.pts, sh.top, sh.bot, rc.coreTe === 'sharp') : null;
+      const coreFull = (rc.showCore && (sh.top || sh.bot)) ? ribInset(o.pts, sh.top, sh.bot, rc.coreTe === 'sharp', sh.dbox) : null;
       const sparFull = [];
       if (rc.showSpars) (state.spars || []).forEach((sp, j) => {
         if (rc.sparHide[j] || !sparAppliesTo(sp, st.seg)) return;
@@ -1204,11 +1215,16 @@
     ribs.forEach((r, i) => {
       const tr = p => ({ x: p.x + r.px, y: p.y + r.py });
       (r.pieces || []).forEach(pc => {
-        ctx.lineWidth = 1.8; ctx.strokeStyle = App.PAL.profInner;
-        App.poly(ctx, V, pc.outer.map(tr), true); ctx.stroke();
+        // Beplankt: die Rippe selbst ist die INNERE Kontur (pc.core) -> durchgezogen;
+        // die Außenkontur (Profil inkl. Beplankung) nur gestrichelt als Bezug.
         if (pc.core) {
           ctx.lineWidth = 1.2; ctx.strokeStyle = App.PAL.profOuter; ctx.setLineDash([5, 4]);
-          App.poly(ctx, V, pc.core.map(tr), true); ctx.stroke(); ctx.setLineDash([]);
+          App.poly(ctx, V, pc.outer.map(tr), true); ctx.stroke(); ctx.setLineDash([]);
+          ctx.lineWidth = 1.8; ctx.strokeStyle = App.PAL.profInner;
+          App.poly(ctx, V, pc.core.map(tr), true); ctx.stroke();
+        } else {
+          ctx.lineWidth = 1.8; ctx.strokeStyle = App.PAL.profInner;
+          App.poly(ctx, V, pc.outer.map(tr), true); ctx.stroke();
         }
         (pc.spars || []).forEach(spp => {
           ctx.lineWidth = 1.2; ctx.strokeStyle = App.PAL.spar; ctx.setLineDash(dashFor('spar', []));

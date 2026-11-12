@@ -295,9 +295,36 @@
    * LE/TE kein Sprung entsteht. Sind beide Werte gleich, ist das Ergebnis
    * identisch zum einfachen offsetPath(pts, -gap). Rückgabe: Kontur (offen),
    * anschließend wie beim einfachen Offset per trimTE zu bereinigen. */
-  function offsetPathTB(pts, topGap, botGap) {
+  // dbox (optional, 0..1): D-Box-Beplankung — Abzug nur von der Nase bis zu diesem
+  // Sehnenanteil, dahinter Kern = Profil (Stufe am Beplankungsende, oben und unten).
+  /* D-Box-Ende: an jeder Kreuzung von f = db zwei Punkte im Abstand 1 µm einfügen,
+   * damit der Sprung des Abzugs auf einer winzigen Kante liegt -> Stufe senkrecht
+   * zum Profilverlauf statt einer Rampe über eine ganze Punktteilung. */
+  function dboxSplit(pts, db) {
+    const n = pts.length;
+    let iLE = 0, iTE = 0;
+    for (let i = 1; i < n; i++) { if (pts[i].x < pts[iLE].x) iLE = i; if (pts[i].x > pts[iTE].x) iTE = i; }
+    const LE = pts[iLE], TE = pts[iTE];
+    const cx = TE.x - LE.x, cy = TE.y - LE.y, cl2 = cx * cx + cy * cy || 1;
+    const F = p => (cx * (p.x - LE.x) + cy * (p.y - LE.y)) / cl2;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = pts[i]; out.push(a);
+      if (i === n - 1) break;
+      const b = pts[i + 1], fa = F(a), fb = F(b);
+      if ((fa - db) * (fb - db) >= 0 || fa === fb) continue;
+      const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < 4e-3) continue;
+      const t = (db - fa) / (fb - fa), e = 1e-3 / L;
+      [t - e, t + e].forEach(s => { s = Math.max(1e-6, Math.min(1 - 1e-6, s)); out.push({ x: a.x + (b.x - a.x) * s, y: a.y + (b.y - a.y) * s }); });
+    }
+    out.name = pts.name;
+    return out;
+  }
+  function offsetPathTB(pts, topGap, botGap, dbox) {
     topGap = topGap || 0; botGap = botGap || 0;
-    if (topGap === botGap) return offsetPath(pts, -topGap, null);
+    const db = dbox > 0 && dbox < 1 ? dbox : 0;
+    if (topGap === botGap && !db) return offsetPath(pts, -topGap, null);
+    if (db) pts = dboxSplit(pts, db);
     const n = pts.length;
     // Sehnenlinie über die Extrempunkte in x (Nase = min x, Endleiste = max x).
     let iLE = 0, iTE = 0;
@@ -318,6 +345,11 @@
       let sd = posIsTop ? d[i] : -d[i];       // sd>0 -> oben
       let w = 0.5 + sd / (2 * band); w = w < 0 ? 0 : w > 1 ? 1 : w;
       gap[i] = -(botGap + (topGap - botGap) * w);   // nach innen
+      if (db) {
+        // Sehnenanteil ab Nase entlang der Sehne; hinter dem D-Box-Ende kein Abzug.
+        const f = (cx * (pts[i].x - LE.x) + cy * (pts[i].y - LE.y)) / cl;   // cx,cy normiert -> Anteil
+        if (f > db) gap[i] = 0;
+      }
     }
     return offsetPath(pts, gap, null);
   }
@@ -856,8 +888,8 @@
       const r = sh.root || {}, t = sh.tip || {};
       const any = (r.top || r.bot || t.top || t.bot);
       if (any) {
-        rootCore = Airfoil.resample(trimTE(offsetPathTB(w.root.pts, r.top || 0, r.bot || 0)), NP);
-        tipCore  = Airfoil.resample(trimTE(offsetPathTB(w.tip.pts,  t.top || 0, t.bot || 0)), NP);
+        rootCore = Airfoil.resample(trimTE(offsetPathTB(w.root.pts, r.top || 0, r.bot || 0, r.dbox)), NP);
+        tipCore  = Airfoil.resample(trimTE(offsetPathTB(w.tip.pts,  t.top || 0, t.bot || 0, t.dbox)), NP);
       }
     } else if (sh > 0) {
       rootCore = Airfoil.resample(trimTE(offsetPath(w.root.pts, -sh, null)), NP);

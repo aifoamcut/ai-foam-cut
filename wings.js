@@ -21,12 +21,12 @@
   // ---------- Welche cfg-Werte gehören zur Tragfläche? --------------------
   const WING_CFG_KEYS = [
     // Tragflächendesign
-    'twistRef', 'points', 'ribFit', 'ribCtrl', 'ribLambda', 'ribTol', 'ribNoseFix', 'sheeting', 'sheetMode', 'sheetSides', 'sheetTop', 'sheetBot',
+    'twistRef', 'points', 'ribFit', 'ribCtrl', 'ribLambda', 'ribTol', 'ribNoseFix', 'sheeting', 'sheetMode', 'sheetSides', 'sheetTop', 'sheetBot', 'sheetDbox', 'sheetDboxPct', 'sheetDboxPctTip',
     'globalDih', 'align', 'hingeAlign', 'sweepRef', 'dihedralCut', 'profSegs', 'pc2Show', 'pc2ShowSec',
     // Kerndesign
     'leStyle', 'leAngle', 'leGap', 'eightW', 'eightH', 'eightCross', 'teStyle',
     'extOverBlockLE', 'extOverBlockClearLE', 'extOverBlockTE', 'extOverBlockClearTE', 'kerfDatum', 'shellCut', 'shellTop', 'shellBot', 'shellPreF', 'shellPreR',
-    'coreStegeOn', 'noseBarOn', 'noseBarA', 'noseBarATip', 'noseBarDepth', 'noseBarDepthTip', 'noseBarRot', 'noseBarGap',
+    'coreStegeOn', 'noseBarOn', 'noseBarA', 'noseBarATip', 'noseBarDepth', 'noseBarDepthTip', 'noseBarRot', 'noseBarGap', 'noseBarShape',
     'flipY', 'stackCount', 'stackGap', 'stackOffset', 'stackBaseOn', 'stackBase', 'stackMirror',
     'sparCut', 'sparKerfMode', 'sparKerfBasis', 'sparCutMode', 'sparOnly',
     'sweepRot', 'sweepRotMode', 'sweepRotRef', 'sweepRotAngle',

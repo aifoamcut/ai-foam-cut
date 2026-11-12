@@ -94,6 +94,7 @@
     // wählt den Schnittzeitpunkt ('after'/'afterTop'), ohne Filter alle (Programm
     // „nur Holmausschnitte").
     const spars = (state.spars || []).filter(sp => App.sparAppliesTo(sp, segIdx) && !App.isPocket(sp)
+      && !(App.isXHinge && App.isXHinge(sp))   // X-Spalt: immer in der Profilbahn
       && (!opt.modeFilter || App.sparModeOf(sp) === opt.modeFilter));
     // Reihenfolge von vorne nach hinten (Abstand zur Nasenleiste an der Wurzel):
     // der Draht fährt die Holme in einem Zug von der Nase her ab, egal in welcher
@@ -146,7 +147,7 @@
       return true;
     }
     spars.forEach(sp => {
-      const no = (state.spars || []).indexOf(sp) + 1;
+      const no = (state.spars || []).indexOf(sp._xOf || sp) + 1;
       try {
         const topSp = Object.assign({}, sp, { approach: 'top', approachAbs: true });   // immer von oben anfahren (Maschinen-oben, auch kopfüber)
         const yco = App.sparYc(sp);
@@ -154,7 +155,7 @@
         const gr = App.sparOnProfile(topSp, cut.root.pts, coreR || cut.root.pts, App.sparFromLE(sp, segIdx, 'root'), yco, 'root', coreR);
         const gt = App.sparOnProfile(topSp, cut.tip.pts, coreT || cut.tip.pts, App.sparFromLE(sp, segIdx, 'tip'), yco, 'tip', coreT);
         if (!gr || !gr.lead || !gt || !gt.lead) return;   // reicht bis zur Oberfläche -> überspringen
-        const kh = App.sparKerfHalf(sp, cut, gr.poly, gt.poly);   // Abbrand je Rippe (Modus/Bezug: global oder je Holm)
+        const kh = App.sparKerfHalf(sp, cut, gr.poly, gt.poly, gr.lead, gt.lead);   // Abbrand je Rippe (Modus/Bezug: global oder je Holm)
         // Ecken-Anker nur bei gleicher Ecken-Anzahl an Wurzel und Rand (s. applySparCuts).
         const kR = App.kerfKeepTopology(gr.lead[1], gr.poly, gr.lead[0], kh.root, cut.root.pts, false);
         const kT = App.kerfKeepTopology(gt.lead[1], gt.poly, gt.lead[0], kh.tip, cut.tip.pts, false);

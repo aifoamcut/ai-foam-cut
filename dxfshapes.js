@@ -1936,7 +1936,7 @@
     const sf = i <= ns - 1 ? App.sheetFor(state.segments[i]).root
                            : App.sheetFor(state.segments[ns - 1]).tip;
     if (ex.beplankung && App.sheetActive({ root: sf, tip: sf })) {
-      const inner = Airfoil.resample(HotWire.trimTE(HotWire.offsetPathTB(pts, sf.top, sf.bot)), pts.length);
+      const inner = Airfoil.resample(HotWire.trimTE(HotWire.offsetPathTB(pts, sf.top, sf.bot, sf.dbox)), pts.length);
       if (inner && inner.length > 2) out.sheet.push({ pts: inner.map(p => ({ x: p.x, y: p.y })), closed: true });
     }
     // Aktive Holme, die diese Rippe betreffen. Station i ist Außenrippe von Segment

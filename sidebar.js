@@ -175,7 +175,12 @@
       tools.appendChild(q); tools.appendChild(n);
       const host = hintHost(h);
       if (host) {
-        const lbl = host.querySelector && host.querySelector('label, .mlbl');
+        // Nur die EIGENE Beschriftung des Felds nehmen. Ist der Host ein ganzer
+        // Container (z. B. Segmentkarte), landete das „?" sonst am ersten Label
+        // irgendwo darin (Wurzelsehne) und öffnete dort eine fremde Beschreibung.
+        const isRow = /\b(row|mrow)\b/.test(host.className);
+        const lbl = host.querySelector && host.querySelector(isRow ? 'label, .mlbl' : ':scope > label, :scope > .mlbl');
+        if (!isRow && !lbl) { h.parentNode.insertBefore(tools, h.nextSibling); return; }
         const target = lbl || host;
         // Nur EIN Werkzeug-Paar je Feld: bereits vorhandenes 📝/? nicht duplizieren.
         if (target.querySelector && target.querySelector('.field-tools')) return;
@@ -484,6 +489,9 @@
     }
     return numRow(body, label, get, set, opt);
   }
+  // Anzeigename eines Holms: „Holm n“ + optional der eigene Name (sp.name).
+  App.sparLabel = i => { const sp = state.spars && state.spars[i]; const nm = sp && sp.name ? String(sp.name).trim() : '';
+    return T('Holm ') + (i + 1) + (nm ? ' · ' + nm : ''); };
   function txtRow(body, label, get, set) {
     const row = document.createElement('div'); row.className = 'row';
     const l = document.createElement('label'); l.textContent = T(label);
@@ -556,7 +564,18 @@
     if (importKey.type === 'root' || !App.strakInfo || !window.PC2) return false;
     const idx = importKey.idx, h = state.segments[idx];
     if (!h) return false;
+    // Strak braucht ein gegebenes Profil weiter AUSSEN. Am äußersten Segment (bzw. wenn
+    // außen nur noch Strak-Segmente folgen) gäbe es nur eine Kopie des Innenprofils —
+    // das überschrieb das geladene Randprofil (Rückmeldung Neil). Schalter dort weglassen.
+    let hasOuter = false;
+    for (let m = idx + 1; m < state.segments.length; m++) if (!state.segments[m].strak) { hasOuter = true; break; }
+    if (!hasOuter && !h.strak) return false;
     boolRow(body, 'Strak-Profil (aus Nachbarprofilen gemischt)', () => !!h.strak, v => {
+      // Beim Einschalten das gegebene Profil merken, beim Ausschalten zurückholen.
+      if (v && !h.strak) h.strakOrig = { profile: h.profile, foilName: h.foilName };
+      else if (!v && h.strak && h.strakOrig && h.strakOrig.profile) {
+        h.profile = h.strakOrig.profile; h.foilName = h.strakOrig.foilName || ''; delete h.strakOrig;
+      }
       h.strak = !!v; h.foilMix = null; h.strakEdit = null;
       App.recompute(); buildSidebar();
     }, 'Wie im Planform Creator: das Profil wird aus dem nächsten gegebenen Profil weiter innen und dem nächsten '
@@ -837,11 +856,11 @@
     if (which === 'root') {
       selectRow(sb, label + T(' ab NL'), modeOpts, () => sp.posMode, v => { sp.posMode = v; buildSidebar(); render(); });
       numRow(sb, sp.posMode === 'mm' ? label + ' (mm)' : label + ' (%)',
-        () => sp.pos, v => { sp.pos = v; render(); }, { min: 0, norender: true });
+        () => sp.pos, v => { const p0 = App.sparProportional(sp); sp.pos = v; render(); if (App.sparProportional(sp) !== p0) buildSidebar(); }, { min: 0, norender: true, enter: true });
     } else {
       selectRow(sb, label + T(' ab NL'), modeOpts, () => sp.posModeTip || sp.posMode, v => { sp.posModeTip = v; buildSidebar(); render(); });
       numRow(sb, (sp.posModeTip || sp.posMode) === 'mm' ? label + ' (mm)' : label + ' (%)',
-        () => (sp.posTip != null ? sp.posTip : sp.pos), v => { sp.posTip = v; render(); }, { min: 0, norender: true });
+        () => (sp.posTip != null ? sp.posTip : sp.pos), v => { const p0 = App.sparProportional(sp); sp.posTip = v; render(); if (App.sparProportional(sp) !== p0) buildSidebar(); }, { min: 0, norender: true, enter: true });
     }
   }
   /* Abbrand der Holmausschnitte (global + je Holm) — Kerndesign und Negativschalen-
@@ -868,12 +887,12 @@
     if (spars.length) {
       subhead(body, 'Abbrand je Holm');
       spars.forEach((sp, k) => {
-        selectRow(body, T('Holm ') + (k + 1) + T(' · Abbrand'),
+        selectRow(body, App.sparLabel(k) + T(' · Abbrand'),
           [['global', 'Global'], ['none', 'Ohne'], ['in', 'Innen'], ['out', 'Außen']],
           () => sp.kerfMode || 'global', v => { sp.kerfMode = v; buildSidebar(); render(); },
           T('Abbrand-Kompensation nur für Holm ') + (k + 1) + T('. „Global" = obige Einstellung.'));
         if ((sp.kerfMode || 'global') !== 'global' && (sp.kerfMode || 'global') !== 'none')
-          selectRow(body, T('Holm ') + (k + 1) + T(' · Bezug'),
+          selectRow(body, App.sparLabel(k) + T(' · Bezug'),
             [['global', 'Global'], ['profile', 'Verhältnis (Profillänge)'], ['local', 'Lokale Geschwindigkeit']],
             () => sp.kerfBasis || 'global', v => { sp.kerfBasis = v; render(); },
             T('Abbrand-Bezug nur für Holm ') + (k + 1) + T('. „Global" = obige Einstellung, „Verhältnis" = wie Profil je Rippe, „Lokale Geschwindigkeit" = Verhältnis der Taschenumfänge beim Holmschnitt.'));
@@ -906,7 +925,7 @@
       const caret = document.createElement('span');
       caret.textContent = open ? '▾' : '▸';
       caret.style.cssText = 'color:var(--muted);margin-right:6px;font-size:10px';
-      const lab = document.createElement('b'); lab.style.fontSize = '12px'; lab.textContent = 'Holm ' + (k + 1);
+      const lab = document.createElement('b'); lab.style.fontSize = '12px'; lab.textContent = App.sparLabel(k);
       if (open) lab.style.color = 'var(--accent)';
       const spc = document.createElement('div'); spc.style.flex = '1';
       const del = mkMini('✕', () => {
@@ -924,8 +943,9 @@
       const sb = document.createElement('div');
       sb.style.cssText = 'padding:8px;display:grid;gap:8px';
       card.appendChild(sb);
+      txtRow(sb, 'Name (frei)', () => sp.name || '', v => { sp.name = v; lab.textContent = App.sparLabel(k); render(); });
       if (sp.shape === 'v') sp.shape = 'trapez';   // V-förmig entfernt (mit Trapez abgedeckt)
-      selectRow(sb, 'Form', [['circle', 'Kreis'], ['oval', 'Oval'], ['trapez', 'Trapez'], ['doubleT', 'Doppel-T (I-Träger)'], ['pocket', 'Tasche (Gurt ohne Steg)'], ['pocketWeb', 'Tasche + Steg (Doppel-T)'], ['hinge', 'Scharnierschnitt']],
+      selectRow(sb, 'Form', [['circle', 'Kreis'], ['oval', 'Oval'], ['trapez', 'Trapez'], ['doubleT', 'Doppel-T (I-Träger)'], ['pocket', 'Tasche (Gurt ohne Steg)'], ['pocketWeb', 'Tasche + Steg (Doppel-T)'], ['hinge', 'Scharnierschnitt'], ['contour', 'Profilfolgende Aussparung']],
         () => sp.shape, v => { sp.shape = v; buildSidebar(); render(); });
       const isHinge = sp.shape === 'hinge';
       const isPocket = sp.shape === 'pocket' || sp.shape === 'pocketWeb';
@@ -1063,10 +1083,46 @@
           + '(an der eingestellten Scharnier-Profilseite des Segments), der Schnitt öffnet sich zur '
           + 'gegenüberliegenden Profilseite und wird IMMER von dieser gegenüberliegenden Seite angefahren. '
           + 'Lage und Seite kommen aus der Scharnierlinie des Segments.');
-        selectRow(sb, 'Form', [['v', 'V-förmig (Dreieck)'], ['trapez', 'Trapezförmig']],
-          () => sp.hingeForm || 'v', v => { sp.hingeForm = v; buildSidebar(); render(); },
+        // Altstand: X-Spalt hing kurz unter „Lage der Spitze" -> jetzt eine Form.
+        if (sp.hingeAt === 'x') { sp.hingeAt = 'line'; if (sp.hingeForm !== 'slot') sp.hingeForm = 'x'; }
+        const isX = sp.hingeForm === 'x';
+        selectRow(sb, 'Form', [['v', 'V-förmig (Dreieck)'], ['trapez', 'Trapezförmig'], ['x', 'X-Spalt (oben + unten)'], ['slot', 'Schlitz durchgehend (Hilfsendleiste)']],
+          () => sp.hingeForm || 'v', v => { sp.hingeForm = v; if (v === 'slot' && !(sp.hingeTipW > 0)) sp.hingeTipW = 3; buildSidebar(); render(); },
           'V-förmig: Spitze (Punkt) auf der Scharnierlinie. Trapezförmig: die kurze Trapezseite '
-          + 'liegt auf der Scharnierlinie, der Schnitt öffnet sich zur gegenüberliegenden Seite.');
+          + 'liegt auf der Scharnierlinie, der Schnitt öffnet sich zur gegenüberliegenden Seite. '
+          + 'Schlitz durchgehend: senkrechter Schlitz über die ganze Profildicke (trennt das Ruder ab) — zum '
+          + 'Einsetzen einer Hilfsendleiste bzw. Querruder-Nasenleiste aus Balsa. '
+          + 'X-Spalt: Scharnier in der Profilmitte (z. B. Fun-Fly, Ausschlag oben UND unten) — die Profilbahn läuft '
+          + 'oben und unten schräg bis zur Mitte und wieder hinaus, im selben Zug wie der Profilschnitt.');
+        if (sp.hingeForm === 'slot') {
+          numRow(sb, 'Schlitzbreite (mm)', () => sp.hingeTipW, v => { sp.hingeTipW = Math.max(0.2, v); render(); },
+            { step: 0.5, min: 0.2, norender: true,
+              hint: 'Breite des Schlitzes = Dicke der einzusetzenden Leiste(n). Der Abbrand wird wie bei den übrigen Holmausschnitten eingerechnet.' });
+          numRow(sb, 'Versatz zur Scharnierlinie (mm)', () => sp.slotShift || 0, v => { sp.slotShift = v; render(); },
+            { step: 0.5, norender: true,
+              hint: 'Schlitzmitte relativ zur Scharnierlinie: negativ = Richtung Nasenleiste, positiv = Richtung Endleiste.' });
+        } else {
+        if (!isX) selectRow(sb, 'Lage der Spitze', [['line', 'An der Scharnier-Profilseite (Segment)'],
+            ['midUp', 'Profilmitte – öffnet nach oben'], ['midDn', 'Profilmitte – öffnet nach unten']],
+          () => sp.hingeAt || 'line', v => { sp.hingeAt = v; buildSidebar(); render(); },
+          'Profilmitte: Scharnier in der Mitte der Profildicke (z. B. Fun-Fly mit Ausschlag oben UND unten). '
+          + 'Zwei Ausschnitte — einer öffnet nach oben, einer nach unten — ergeben zusammen einen X-Spalt.');
+        if (!isX && (sp.hingeAt || 'line') !== 'line' && !spars.some(o => o !== sp && o.shape === 'hinge'
+            && o.hingeAt === (sp.hingeAt === 'midUp' ? 'midDn' : 'midUp') && o.segFrom === sp.segFrom && o.segTo === sp.segTo)) {
+          const rr = document.createElement('div'); rr.className = 'row full';
+          const bx = document.createElement('button'); bx.textContent = T('✕ X-Spalt: Gegenstück anlegen');
+          bx.title = T('Legt den gleichen Scharnierausschnitt zur anderen Profilseite an — zusammen ergibt das den X-Spalt.');
+          bx.onclick = () => {
+            const o = JSON.parse(JSON.stringify(sp)); o.hingeAt = sp.hingeAt === 'midUp' ? 'midDn' : 'midUp';
+            if (o.name) o.name = o.name + ' 2';
+            spars.push(o); buildSidebar(); render();
+          };
+          rr.appendChild(bx); sb.appendChild(rr);
+        }
+        if (isX)
+          numRow(sb, 'Steg in der Mitte (mm)', () => sp.hingeWeb != null ? sp.hingeWeb : 1, v => { sp.hingeWeb = Math.max(0, v); render(); },
+            { step: 0.1, min: 0, norender: true,
+              hint: 'Material, das zwischen den Spitzen von oberem und unterem Keil stehen bleibt (Scharnier). Der obere Keil wird im Zug der Oberseite, der untere im Zug der Unterseite geschnitten: Profil → schräg bis zur Mitte → schräg wieder hinaus → Profil weiter.' });
         if ((sp.hingeForm || 'v') === 'trapez')
           numRow(sb, 'Breite kurze Seite an Scharnier (mm)', () => sp.hingeTipW, v => { sp.hingeTipW = v; render(); },
             { step: 0.5, min: 0, norender: true,
@@ -1077,6 +1133,7 @@
         numRow(sb, 'Winkel hinten (° ab Senkrechte)', () => sp.angRear, v => { sp.angRear = v; render(); },
           { step: 1, min: 0, max: 85, norender: true,
             hint: 'Öffnungswinkel der hinteren Wand (Richtung Endleiste), gemessen ab der Senkrechten durch die Spitze.' });
+        if (!isX) {
         numRow(sb, 'Schnittspur Richtung Scharnier (mm)', () => sp.hingeReach, v => { sp.hingeReach = v; render(); },
           { step: 0.5, norender: true,
             hint: 'Wie weit die Schnittspur in Richtung Scharnier geht, gemessen ab der Scharnierlinie: '
@@ -1084,6 +1141,23 @@
         numRow(sb, 'Über gegenüberliegende (Anfahr-)Seite hinaus (mm)', () => sp.hingeOver, v => { sp.hingeOver = v; render(); },
           { step: 0.5, min: 0, norender: true,
             hint: 'Verlängert die Basis über die gegenüberliegende (Anfahr-)Profilseite hinaus. 0 = genau an der gegenüberliegenden Seite.' });
+        }
+        }
+      } else if (sp.shape === 'contour') {
+        // Profilfolgende Aussparung: Vorderwand = Lage (unten), Hinterwand ab Nase,
+        // Ober-/Unterkante im Abstand zur Oberfläche (mm oder % der lokalen Dicke).
+        const pu = sp.posMode === 'mm' ? ' (mm)' : ' (% Profiltiefe)';
+        hint(sb, 'Aussparung zur Gewichtserleichterung: Vorder- und Hinterwand stehen senkrecht und parallel, Ober- und Unterkante '
+          + 'folgen der Profilkontur im eingestellten Abstand. Die Vorderwand liegt bei der „Lage“ (unten), die Hinterwand ab Nase.');
+        numRow(sb, 'Hinterwand ab Nase' + pu, () => (sp.cfRear != null ? sp.cfRear : (sp.posMode === 'mm' ? 0 : 60)), v => { sp.cfRear = v; render(); },
+          { step: 1, min: 0, norender: true, hint: 'Lage der hinteren senkrechten Wand, gemessen ab der Profilnase (gleiche Einheit wie die Lage der Vorderwand).' });
+        if (sp.sizeTip)
+          numRow(sb, 'Hinterwand ab Nase außen' + pu, () => (sp.cfRearTip != null ? sp.cfRearTip : (sp.cfRear != null ? sp.cfRear : 60)), v => { sp.cfRearTip = v; render(); },
+            { step: 1, min: 0, norender: true });
+        numRow(sb, 'Abstand zur Oberseite' + dLbl, () => (sp.cfOffTop != null ? sp.cfOffTop : (uMM ? 2 : 15)), v => { sp.cfOffTop = Math.max(0, v); render(); },
+          { step: uMM ? 0.5 : 1, min: 0, norender: true, hint: 'Wandstärke zwischen Aussparung und Profiloberseite (Kern, nach Beplankungsabzug). In % = Anteil der lokalen Profildicke.' });
+        numRow(sb, 'Abstand zur Unterseite' + dLbl, () => (sp.cfOffBot != null ? sp.cfOffBot : (uMM ? 2 : 15)), v => { sp.cfOffBot = Math.max(0, v); render(); },
+          { step: uMM ? 0.5 : 1, min: 0, norender: true });
       } else {
         numRow(sb, 'Breite' + innerTxt + dLbl,
           () => sp.w, v => { sp.w = v; render(); }, { step: 1, min: 0.1, norender: true });
@@ -1123,7 +1197,7 @@
           isPocket ? 'Eigene Taschenbreite für die AUSSEN-Rippe (Randseite). Aus = außen wie innen (Tasche läuft konisch von innen nach außen).'
                    : 'Eigenes Maß für die AUSSEN-Rippe (Randseite). Aus = außen wie innen. '
                      + 'Der Holm läuft dann konisch von innen nach außen.');
-        if (sp.sizeTip) {
+        if (sp.sizeTip && sp.shape !== 'contour') {
           if (isCirc) {
             numRow(sb, 'Durchmesser außen' + dLbl,
               () => sp.hTip, v => { sp.hTip = v; render(); }, { step: 1, min: 0.1, norender: true });
@@ -1136,7 +1210,7 @@
           }
         }
       }
-      if (!isHinge && !isPocket) {
+      if (!isHinge && !isPocket && sp.shape !== 'contour') {
         // Doppel-T sitzt immer mittig zwischen den Profiloberflächen (kein Höhenversatz).
         if (isDT) sp.yOff = 0;
         else {
@@ -1533,6 +1607,17 @@
     } else {
       numRow(g.body, 'Beplankungsdicke (mm)', () => c.sheeting, v => c.sheeting = Math.max(0, v), { step: 0.1, min: 0 });
     }
+    boolRow(g.body, 'Nur D-Box (Nase bis Sehnenanteil)', () => !!c.sheetDbox, v => { c.sheetDbox = v; buildSidebar(); render(); },
+      'Beplankung nur vorne: von der Nasenleiste bis zum eingestellten Anteil der Sehne, oben und unten. '
+      + 'Dahinter bleibt der Kern in voller Profildicke — am Beplankungsende entsteht eine Stufe in Beplankungsdicke. '
+      + 'Gilt für Kernschnitt, Holmausschnitte, Profilbild und DXF.');
+    if (c.sheetDbox) {
+      numRow(g.body, 'D-Box bis Wurzel/innen (% Sehne ab Nase)', () => c.sheetDboxPct != null ? c.sheetDboxPct : 30,
+        v => c.sheetDboxPct = Math.max(1, Math.min(99, v)), { step: 1, min: 1, max: 99 });
+      numRow(g.body, 'D-Box bis Rand/außen (% Sehne ab Nase)',
+        () => c.sheetDboxPctTip != null ? c.sheetDboxPctTip : (c.sheetDboxPct != null ? c.sheetDboxPct : 30),
+        v => c.sheetDboxPctTip = Math.max(1, Math.min(99, v)), { step: 1, min: 1, max: 99 });
+    }
     return g;
   }
 
@@ -1919,19 +2004,19 @@
         + '(Tasche / Tasche + Steg) sind immer Teil des Profilschnitts.';
       if (!state.cfg.sparOnly) (state.spars || []).forEach((sp, i) => {
         if (App.isPocket(sp)) return;
-        selectRow(hgc.body, T('Holm ') + (i + 1) + T(' · Schnitt'), modeOpts,
+        selectRow(hgc.body, App.sparLabel(i) + T(' · Schnitt'), modeOpts,
           () => App.sparModeOf(sp), v => { sp.cutMode = v; buildSidebar(); render(); }, modeHelp);
         // Anfahrt bezogen auf die MASCHINE (oben = oben am Block, auch kopfüber).
         // Nur „während des Schnitts" wählbar; Scharnier: immer gegenüber dem Scharnier.
         // Feste Fälle als einwertige Auswahl (immer sichtbar, Hinweise können zugeklappt sein).
         if (sp.shape === 'hinge')
-          selectRow(hgc.body, T('Holm ') + (i + 1) + T(' · Anfahrt'), [['fix', 'Gegenüber Scharnier (fest)']], () => 'fix', () => {},
+          selectRow(hgc.body, App.sparLabel(i) + T(' · Anfahrt'), [['fix', 'Gegenüber Scharnier (fest)']], () => 'fix', () => {},
             'Scharnierausschnitt: Einstich immer von der dem Scharnier gegenüberliegenden Seite.');
         else if (App.sparModeOf(sp) !== 'during')
-          selectRow(hgc.body, T('Holm ') + (i + 1) + T(' · Anfahrt'), [['fix', 'Von oben (fest)']], () => 'fix', () => {},
+          selectRow(hgc.body, App.sparLabel(i) + T(' · Anfahrt'), [['fix', 'Von oben (fest)']], () => 'fix', () => {},
             'Bei „nach dem Schnitt" und „nach Oberseitenschnitt" wird immer von oben angefahren. Wählbar bei „Während des Schnitts".');
         else
-          selectRow(hgc.body, T('Holm ') + (i + 1) + T(' · Anfahrt'),
+          selectRow(hgc.body, App.sparLabel(i) + T(' · Anfahrt'),
             [['shortest', 'Kürzester Weg'], ['top', 'Von oben'], ['bottom', 'Von unten']],
             () => sp.approach || 'shortest', v => { sp.approach = v; render(); },
             'Von welcher Seite der Draht in den Holm einsticht: kürzester Weg zur Oberfläche oder erzwungen. '
@@ -1942,7 +2027,7 @@
         hint(hgc.body, 'Schnittrichtung „von vorne": Pause und Holmtaschen folgen, sobald die Oberseite an der '
           + 'Endleiste fertig ist und der Draht hinten auf Sicherheitshöhe steht; danach die Unterseite (wieder von der Nase).');
       if (skewPockets.length && !state.cfg.sparOnly)
-        skewPockets.forEach(o => warn(hgc.body, T('Holm ') + (o.i + 1) + T(' (Tasche): Lage nicht proportional (Wurzel ')
+        skewPockets.forEach(o => warn(hgc.body, App.sparLabel(o.i) + T(' (Tasche): Lage nicht proportional (Wurzel ')
           + o.sk.rootPct.toFixed(1) + T(' %, Außen ') + o.sk.tipPct.toFixed(1) + T(' %). Die Profilbahn wird im Taschenbereich '
           + 'abschnittsweise neu abgetastet; der Draht steht dort schräg, Zwischenrippen weichen um bis zu ≈ ')
           + o.sk.devMm.toFixed(1) + T(' mm in Flugrichtung ab.')));
